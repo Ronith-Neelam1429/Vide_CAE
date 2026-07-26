@@ -77,8 +77,10 @@ struct MechProps {
 }
 
 const SKIN_SRC: &str = "Agache et al. (1980); in-vivo skin E ~0.1-1 MPa, taken here as 0.30 MPa.";
-const FAT_SRC: &str = "Adipose in-vivo elastography, E ~1-3 kPa.";
-const MUSCLE_SRC: &str = "Passive skeletal muscle, E ~10-50 kPa.";
+const FAT_SRC: &str =
+    "Adipose (unconfined E ~1-3 kPa); an effective in-situ compressive modulus of 25 kPa is used because the tissue is confined and near-incompressible.";
+const MUSCLE_SRC: &str =
+    "Passive skeletal muscle; effective in-situ transverse compressive modulus ~100 kPa (unconfined E is lower).";
 const CARTILAGE_SRC: &str = "Articular cartilage compressive modulus ~0.5-1 MPa; poroelastic creep.";
 const CORTICAL_SRC: &str =
     "Reilly & Burstein (1975): cortical bone E ~17 GPa; fatigue S-N from Carter & Caler (1981/1985) and Pattin et al. (1996).";
@@ -99,7 +101,7 @@ fn props_for(class: MechClass) -> MechProps {
             source: SKIN_SRC,
         },
         MechClass::Fat => MechProps {
-            youngs_modulus_pa: 2.0e3,
+            youngs_modulus_pa: 25.0e3,
             retardation_tau_s: 8.0,
             yield_strain: 0.35,
             ultimate_strain: 0.60,
@@ -109,7 +111,7 @@ fn props_for(class: MechClass) -> MechProps {
             source: FAT_SRC,
         },
         MechClass::Muscle => MechProps {
-            youngs_modulus_pa: 25.0e3,
+            youngs_modulus_pa: 100.0e3,
             retardation_tau_s: 5.0,
             yield_strain: 0.30,
             ultimate_strain: 0.60,
@@ -151,7 +153,7 @@ fn props_for(class: MechClass) -> MechProps {
             source: TRABECULAR_SRC,
         },
         MechClass::Marrow => MechProps {
-            youngs_modulus_pa: 3.0e3,
+            youngs_modulus_pa: 40.0e3,
             retardation_tau_s: 8.0,
             yield_strain: 0.40,
             ultimate_strain: 0.60,
@@ -161,7 +163,7 @@ fn props_for(class: MechClass) -> MechProps {
             source: MARROW_SRC,
         },
         MechClass::Aqueous => MechProps {
-            youngs_modulus_pa: 1.0e3,
+            youngs_modulus_pa: 30.0e3,
             retardation_tau_s: 2.0,
             yield_strain: 0.50,
             ultimate_strain: 0.80,
