@@ -12,7 +12,10 @@ function formatDuration(seconds: number): string {
 }
 
 /** One-line summary of a contact's configuration for the list row. */
-function describeAssignment(assignment: StimulusAssignment | undefined): string {
+function describeAssignment(
+  assignment: StimulusAssignment | undefined,
+  regionLabel?: string | null,
+): string {
   if (!assignment) return "Unassigned";
   if (assignment.stimulusType !== "heat") {
     return `${stimulusLabel(assignment.stimulusType)} · not implemented`;
@@ -20,6 +23,7 @@ function describeAssignment(assignment: StimulusAssignment | undefined): string 
 
   const { temperatureC, durationS, contactAreaMm2 } = assignment.parameters;
   return [
+    regionLabel ?? null,
     temperatureC === undefined ? null : `${temperatureC} °C`,
     durationS === undefined ? null : formatDuration(durationS),
     contactAreaMm2 === undefined ? null : `${contactAreaMm2} mm²`,
@@ -130,7 +134,7 @@ export function ContactsPanel() {
                   <span className="contacts-list__text">
                     <span className="contacts-list__name">{contact.label}</span>
                     <span className="contacts-list__meta">
-                      {describeAssignment(assignment)}
+                      {describeAssignment(assignment, contact.anatomyRegionLabel)}
                     </span>
                   </span>
                 </button>
@@ -173,6 +177,37 @@ export function ContactsPanel() {
           {selectedAssignment && (
             <div className="contacts-detail__type">
               {stimulusLabel(selectedAssignment.stimulusType)}
+            </div>
+          )}
+
+          {selected.surface === "body" && selected.anatomyRegionLabel && (
+            <div className="contacts-site-banner">
+              <div className="contacts-site-banner__title">
+                Body site → tissue model
+              </div>
+              <div className="contacts-site-banner__value">
+                {selected.anatomyRegionLabel}
+                {selectedAssignment?.options.skinProfileId
+                  ? ` · ${selectedAssignment.options.skinProfileId}`
+                  : ""}
+              </div>
+              {selected.anatomyMeshName && (
+                <div className="contacts-site-banner__mesh">
+                  Hit: {selected.anatomyMeshName.replace(/\.\d+$/, "")}
+                </div>
+              )}
+              {selected.anatomyProfileReason && (
+                <div className="contacts-site-banner__reason">
+                  {selected.anatomyProfileReason}
+                  {selected.anatomyProfileConfidence
+                    ? ` (${selected.anatomyProfileConfidence} confidence)`
+                    : ""}
+                </div>
+              )}
+              <p className="contacts-site-banner__note">
+                Heat uses this site’s layered tissue table, not the GLB mesh
+                materials. Override under Environment → Skin site if needed.
+              </p>
             </div>
           )}
 

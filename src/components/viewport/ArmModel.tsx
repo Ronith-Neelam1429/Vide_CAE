@@ -236,11 +236,16 @@ export function ArmModel() {
         .normalize();
       localPosition.addScaledVector(localNormal, 0.012);
 
+      const hitMesh = hit.object as Mesh;
+      const limb = limbFromIntersection(hitMesh);
+
       event.stopPropagation();
       addContactPoint({
         position: [localPosition.x, localPosition.y, localPosition.z],
         normal: [localNormal.x, localNormal.y, localNormal.z],
         surface: "body",
+        anatomyMeshName: hitMesh.name || null,
+        anatomyLimbId: limb,
       });
       return;
     }

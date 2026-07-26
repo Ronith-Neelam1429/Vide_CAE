@@ -52,7 +52,11 @@ function linesForContact(contact: HeatContactResult): TerminalLine[] {
     },
     {
       kind: "label",
-      text: `${padLabel("Tissue site")}${contact.skinProfile.label}`,
+      text: `${padLabel("Tissue site")}${contact.skinProfile.label} (${contact.skinProfile.site})`,
+    },
+    {
+      kind: "dim",
+      text: `${padLabel("Site source")}${contact.skinProfile.id}`,
     },
     { kind: "dim", text: "" },
     {

@@ -55,15 +55,14 @@ muscles — not procedural placeholders or a flat plane. Toggle **Show anatomy**
 to fade the muscle envelope and reveal the full skeleton underneath. Use
 **Anatomy credit** in the viewport for full CC BY-SA attribution.
 
-The GLB is for **placement and visualization only**. Heat/pressure calculations
-use the separate layered site-profile tissue tables (for example volar forearm),
-not material properties sampled from the displayed muscle mesh.
+The GLB is for **placement and visualization**. Clicking the body auto-selects the
+closest tabulated tissue site (forearm, palm, scalp, abdomen, upper back, shin,
+etc.) from the hit mesh name / limb. Heat still uses those **1-D site-profile
+tables**, not material properties sampled from the displayed muscle mesh.
 
-After a heat run, a separate **Heat validation dashboard** opens with locked
-literature protocols (calibration vs hold-out) and measured-vs-predicted metrics
-when eligible raw series exist. The existing Results sidebar is unchanged. The
-playback timeline still animates the workspace heat series on the forearm as a
-view of the simulation data, never a canned effect.
+After a heat run, Results and the bottom **Simulation output** terminal show the
+workspace contact readout. Comparing to published studies is optional via
+**Compare to papers**.
 
 Use **Literature protocol** in the Contacts stimulus form to one-click apply
 PMED or Mayrovitz forearm cases, or describe a protocol in plain language for

@@ -22,6 +22,10 @@ import {
   type ProtocolSuggestion,
 } from "../lib/assist";
 import {
+  resolveSkinProfileFromAnatomy,
+  type SkinProfileResolution,
+} from "../lib/skinProfileFromAnatomy";
+import {
   defaultOptionsFor,
   defaultParametersFor,
   STIMULUS_PRESETS,
@@ -51,6 +55,15 @@ export type ContactPoint = {
   normal: Vec3;
   /** Mesh that owns these local coordinates. */
   surface: "design" | "body";
+  /** Z-Anatomy mesh name at click (body contacts). */
+  anatomyMeshName?: string | null;
+  /** Coarse limb bucket at click (body contacts). */
+  anatomyLimbId?: AnatomyLimbId | null;
+  /** Human-readable body region inferred from the hit. */
+  anatomyRegionLabel?: string | null;
+  /** Why a skin profile was chosen for this placement. */
+  anatomyProfileReason?: string | null;
+  anatomyProfileConfidence?: SkinProfileResolution["confidence"] | null;
 };
 
 export type StimulusAssignment = {
@@ -140,6 +153,8 @@ type ExperimentState = {
     position: Vec3;
     normal: Vec3;
     surface?: ContactPoint["surface"];
+    anatomyMeshName?: string | null;
+    anatomyLimbId?: AnatomyLimbId | null;
   }) => string;
   selectContact: (id: string | null) => void;
   removeContactPoint: (id: string) => void;
@@ -194,12 +209,23 @@ const DEFAULT_ROTATION: Vec3 = [0, 0, 0];
 const DEFAULT_SCALE: Vec3 = [1, 1, 1];
 const DEFAULT_POSITION: Vec3 = [0, 0, 0];
 
-function makeAssignment(contactPointId: string): StimulusAssignment {
+function makeAssignment(
+  contactPointId: string,
+  skinProfileId?: string,
+  baselineSkinTemperatureC?: number,
+): StimulusAssignment {
+  const parameters = defaultParametersFor("heat");
+  if (baselineSkinTemperatureC !== undefined) {
+    parameters.baselineSkinTemperatureC = baselineSkinTemperatureC;
+  }
   return {
     contactPointId,
     stimulusType: "heat",
-    parameters: defaultParametersFor("heat"),
-    options: defaultOptionsFor("heat"),
+    parameters,
+    options: {
+      ...defaultOptionsFor("heat"),
+      ...(skinProfileId ? { skinProfileId } : {}),
+    },
   };
 }
 
@@ -332,16 +358,42 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       transformEpoch: state.transformEpoch + 1,
     })),
 
-  addContactPoint: ({ position, normal, surface = "design" }) => {
+  addContactPoint: ({
+    position,
+    normal,
+    surface = "design",
+    anatomyMeshName = null,
+    anatomyLimbId = null,
+  }) => {
     const id = crypto.randomUUID();
 
     set((state) => {
+      const anatomyResolution =
+        surface === "body"
+          ? resolveSkinProfileFromAnatomy({
+              meshName: anatomyMeshName,
+              limbId: anatomyLimbId,
+              normal,
+            })
+          : null;
+
+      const profile = anatomyResolution
+        ? state.catalog?.skinProfiles.find(
+            (entry) => entry.id === anatomyResolution.skinProfileId,
+          )
+        : undefined;
+
       const contact: ContactPoint = {
         id,
         label: `CP-${state.contactPoints.length + 1}`,
         position,
         normal,
         surface,
+        anatomyMeshName,
+        anatomyLimbId,
+        anatomyRegionLabel: anatomyResolution?.regionLabel ?? null,
+        anatomyProfileReason: anatomyResolution?.reason ?? null,
+        anatomyProfileConfidence: anatomyResolution?.confidence ?? null,
       };
 
       const pose =
@@ -355,7 +407,14 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
 
       return {
         contactPoints: [...state.contactPoints, contact],
-        assignments: [...state.assignments, makeAssignment(id)],
+        assignments: [
+          ...state.assignments,
+          makeAssignment(
+            id,
+            anatomyResolution?.skinProfileId,
+            profile?.baselineSkinC.value,
+          ),
+        ],
         selectedContactId: id,
         sidebarTab: "contacts" as const,
         tool: "contact" as const,
