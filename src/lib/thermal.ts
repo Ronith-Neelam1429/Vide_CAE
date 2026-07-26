@@ -35,8 +35,7 @@ const SCALD = new Color("#c81e3a");
  * neutral skin at baseline, warming through amber, to red past the 44 °C burn
  * threshold. Returned as a three.js Color so materials can lerp to it.
  */
-export function temperatureColor(tempC: number, baselineC = 33): Color {
-  const out = new Color();
+export function temperatureColor(tempC: number, baselineC = 33, out = new Color()): Color {
   if (tempC <= baselineC) return out.copy(SKIN_BASE);
   if (tempC < 40) {
     return out.copy(SKIN_BASE).lerp(WARM, (tempC - baselineC) / (40 - baselineC));
