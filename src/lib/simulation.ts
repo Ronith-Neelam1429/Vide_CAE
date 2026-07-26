@@ -29,6 +29,9 @@ export type SkinProfile = {
   label: string;
   site: string;
   description: string;
+  shallowMarkerLabel: string;
+  deepMarkerLabel: string;
+  category: string;
   baselineSkinC: Property;
   coreC: Property;
   bloodC: Property;

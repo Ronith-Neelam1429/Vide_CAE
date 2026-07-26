@@ -6,7 +6,6 @@ import {
   getStimulusDefinition,
   STIMULUS_PRESETS,
   visibleFields,
-  type CatalogSource,
   type FieldGroup,
   type StimulusChoiceField,
   type StimulusField,
@@ -21,25 +20,76 @@ type StimulusFormProps = {
 
 const GROUP_ORDER: FieldGroup[] = ["essential", "contact", "device", "environment"];
 
+type Option = { value: string; label: string; group?: string };
+
+function formatConductivity(value: number): string {
+  return `${value} W/m·K`;
+}
+
 /** Options for a choice field, taken from the backend catalog where relevant. */
 function optionsFor(
   field: StimulusChoiceField,
   catalog: ModelCatalog | null,
-): Array<{ value: string; label: string }> {
+): Option[] {
   if (field.choices) return field.choices;
   if (!field.catalog || !catalog) return [];
 
-  const table: Record<CatalogSource, Array<{ id: string; label: string }>> = {
-    skinProfiles: catalog.skinProfiles,
-    deviceMaterials: catalog.deviceMaterials,
-    interfaceMaterials: catalog.interfaceMaterials,
-    damageModels: catalog.damageModels,
-  };
+  switch (field.catalog) {
+    case "skinProfiles":
+      // Group tissues by family so the list of organic materials is scannable.
+      return catalog.skinProfiles.map((entry) => ({
+        value: entry.id,
+        label: entry.label,
+        group: entry.category,
+      }));
+    case "deviceMaterials":
+      return catalog.deviceMaterials.map((entry) => ({
+        value: entry.id,
+        label: `${entry.label} · ${formatConductivity(entry.conductivityWPerMK)}`,
+      }));
+    case "interfaceMaterials":
+      return catalog.interfaceMaterials.map((entry) => ({
+        value: entry.id,
+        label: `${entry.label} · ${formatConductivity(entry.conductivityWPerMK)}`,
+      }));
+    case "damageModels":
+      return catalog.damageModels.map((entry) => ({
+        value: entry.id,
+        label: entry.label,
+      }));
+  }
+}
 
-  return table[field.catalog].map((entry) => ({
-    value: entry.id,
-    label: entry.label,
-  }));
+/** One-line explanation of the currently selected catalog option. */
+function describeOption(
+  field: StimulusChoiceField,
+  value: string,
+  catalog: ModelCatalog | null,
+): string | null {
+  if (!field.catalog || !catalog) return null;
+
+  switch (field.catalog) {
+    case "skinProfiles": {
+      const entry = catalog.skinProfiles.find((e) => e.id === value);
+      return entry ? `${entry.site}. ${entry.description}` : null;
+    }
+    case "deviceMaterials": {
+      const entry = catalog.deviceMaterials.find((e) => e.id === value);
+      return entry ? entry.source : null;
+    }
+    case "interfaceMaterials": {
+      const entry = catalog.interfaceMaterials.find((e) => e.id === value);
+      return entry
+        ? `${formatConductivity(entry.conductivityWPerMK)}${
+            entry.pressureDependent ? ", pressure-dependent" : ""
+          }. ${entry.source}`
+        : null;
+    }
+    case "damageModels": {
+      const entry = catalog.damageModels.find((e) => e.id === value);
+      return entry ? entry.citation : null;
+    }
+  }
 }
 
 function NumberInput({
@@ -78,13 +128,23 @@ function ChoiceInput({
   field,
   value,
   options,
+  description,
   onChange,
 }: {
   field: StimulusChoiceField;
   value: string;
-  options: Array<{ value: string; label: string }>;
+  options: Option[];
+  description: string | null;
   onChange: (next: string) => void;
 }) {
+  // Preserve first-seen order while collecting the distinct group names.
+  const groups = options.reduce<string[]>((acc, option) => {
+    const group = option.group ?? "";
+    if (!acc.includes(group)) acc.push(group);
+    return acc;
+  }, []);
+  const useGroups = groups.length > 1 || (groups.length === 1 && groups[0] !== "");
+
   return (
     <label className="stimulus-form__field">
       <span className="stimulus-form__label">{field.label}</span>
@@ -94,12 +154,27 @@ function ChoiceInput({
         onChange={(event) => onChange(event.target.value)}
       >
         {options.length === 0 && <option value={value}>{value}</option>}
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
+        {useGroups
+          ? groups.map((group) => (
+              <optgroup key={group || "other"} label={group || "Other"}>
+                {options
+                  .filter((option) => (option.group ?? "") === group)
+                  .map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+              </optgroup>
+            ))
+          : options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
       </select>
+      {description && (
+        <span className="stimulus-form__option-desc">{description}</span>
+      )}
       {field.help && <span className="stimulus-form__help">{field.help}</span>}
     </label>
   );
@@ -145,12 +220,14 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
       );
     }
 
+    const currentValue = assignment.options[field.key] ?? field.defaultValue;
     return (
       <ChoiceInput
         key={field.key}
         field={field}
-        value={assignment.options[field.key] ?? field.defaultValue}
+        value={currentValue}
         options={optionsFor(field, catalog)}
+        description={describeOption(field, currentValue, catalog)}
         onChange={(next) => setStimulusOption(contactPointId, field.key, next)}
       />
     );
