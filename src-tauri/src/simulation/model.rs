@@ -65,6 +65,14 @@ pub struct SkinProfile {
     pub label: &'static str,
     pub site: &'static str,
     pub description: &'static str,
+    /// What the shallow depth marker (bottom of the first layer) represents in
+    /// this tissue. For skin this is the basal layer; for other tissues the
+    /// label keeps reported temperatures from silently implying skin anatomy.
+    pub shallow_marker_label: &'static str,
+    /// What the deep depth marker (bottom of the first two layers) represents.
+    pub deep_marker_label: &'static str,
+    /// Broad tissue family, used only to group profiles in the interface.
+    pub category: &'static str,
     pub baseline_skin_c: Property,
     pub core_c: Property,
     pub blood_c: Property,
@@ -201,6 +209,209 @@ const COMMON_CITATIONS: &[&str] = &[
     "Hasgall PA et al. IT'IS Database for thermal and electromagnetic parameters of biological tissues.",
 ];
 
+const SKIN_SHALLOW_MARKER: &str = "Basal layer (dermo-epidermal junction)";
+const SKIN_DEEP_MARKER: &str = "Dermal base (dermis–fat boundary)";
+
+// ---------------------------------------------------------------------------
+// Additional organic tissues
+//
+// These extend the model beyond skin. The same layered 1D Pennes solver is
+// used, so every entry is a genuine conduction/perfusion stack; the marker
+// labels above are set per tissue so a reported depth is never silently
+// interpreted as skin anatomy. Values are representative literature figures and
+// remain Unreviewed in-app, consistent with the skin profiles.
+// ---------------------------------------------------------------------------
+
+const BONE_SOURCE: &str =
+    "Cortical/trabecular bone and marrow properties compiled in tissue databases \
+     (IT'IS Foundation) with direct femoral measurements (Biyikli et al. 1986).";
+const KERATIN_SOURCE: &str =
+    "Keratin fibre conductivity ~0.2 W/(m K) from materials literature; the effective \
+     hair-canopy value is lower because the canopy is mostly entrained air.";
+const CARTILAGE_SOURCE: &str =
+    "Hyaline (articular) cartilage properties from tissue databases (IT'IS Foundation) \
+     and Duck (1990); cartilage is avascular so perfusion is taken as zero.";
+const INVITRO_SOURCE: &str =
+    "Cultured-cell construct approximated as an aqueous/lipid medium near 310 K \
+     (water properties, CRC Handbook). No perfusion in vitro.";
+
+/// Whole-skin cover treated as one layer, so the first depth marker lands on the
+/// skin–tissue interface rather than inside the epidermis.
+const fn skin_cover(thickness_m: f64, low: f64, high: f64) -> TissueLayerSpec {
+    TissueLayerSpec {
+        name: "Skin (epidermis + dermis)",
+        thickness_m: prop(thickness_m, low, high, "m", THICKNESS_SOURCE),
+        density_kg_per_m3: prop(1150.0, 1100.0, 1250.0, "kg/m^3", TISSUE_SOURCE),
+        specific_heat_j_per_kg_k: prop(3400.0, 3200.0, 3700.0, "J/(kg K)", TISSUE_SOURCE),
+        conductivity_w_per_m_k: prop(0.370, 0.300, 0.450, "W/(m K)", TISSUE_SOURCE),
+        perfusion_per_s: prop(0.0016, 0.0002, 0.0100, "1/s", TISSUE_SOURCE),
+        metabolic_w_per_m3: prop(400.0, 200.0, 800.0, "W/m^3", TISSUE_SOURCE),
+    }
+}
+
+const fn cortical_bone(name: &'static str, thickness_m: f64, low: f64, high: f64) -> TissueLayerSpec {
+    TissueLayerSpec {
+        name,
+        thickness_m: prop(thickness_m, low, high, "m", THICKNESS_SOURCE),
+        density_kg_per_m3: prop(1908.0, 1700.0, 2000.0, "kg/m^3", BONE_SOURCE),
+        specific_heat_j_per_kg_k: prop(1313.0, 1100.0, 1500.0, "J/(kg K)", BONE_SOURCE),
+        conductivity_w_per_m_k: prop(0.320, 0.200, 0.580, "W/(m K)", BONE_SOURCE),
+        // Cortical bone is poorly perfused on these timescales.
+        perfusion_per_s: prop(0.0001, 0.0, 0.0003, "1/s", BONE_SOURCE),
+        metabolic_w_per_m3: prop(26.0, 0.0, 100.0, "W/m^3", BONE_SOURCE),
+    }
+}
+
+const fn trabecular_bone(thickness_m: f64) -> TissueLayerSpec {
+    TissueLayerSpec {
+        name: "Trabecular bone",
+        thickness_m: prop(thickness_m, thickness_m, thickness_m, "m", THICKNESS_SOURCE),
+        density_kg_per_m3: prop(1178.0, 900.0, 1400.0, "kg/m^3", BONE_SOURCE),
+        specific_heat_j_per_kg_k: prop(2274.0, 1800.0, 2500.0, "J/(kg K)", BONE_SOURCE),
+        conductivity_w_per_m_k: prop(0.310, 0.200, 0.400, "W/(m K)", BONE_SOURCE),
+        perfusion_per_s: prop(0.0008, 0.0003, 0.0030, "1/s", BONE_SOURCE),
+        metabolic_w_per_m3: prop(26.0, 0.0, 100.0, "W/m^3", BONE_SOURCE),
+    }
+}
+
+const fn yellow_marrow(thickness_m: f64) -> TissueLayerSpec {
+    TissueLayerSpec {
+        name: "Bone marrow",
+        thickness_m: prop(thickness_m, thickness_m, thickness_m, "m", THICKNESS_SOURCE),
+        density_kg_per_m3: prop(980.0, 900.0, 1050.0, "kg/m^3", BONE_SOURCE),
+        specific_heat_j_per_kg_k: prop(2700.0, 2000.0, 3000.0, "J/(kg K)", BONE_SOURCE),
+        conductivity_w_per_m_k: prop(0.185, 0.150, 0.300, "W/(m K)", BONE_SOURCE),
+        perfusion_per_s: prop(0.0002, 0.0, 0.0010, "1/s", BONE_SOURCE),
+        metabolic_w_per_m3: prop(5.0, 0.0, 50.0, "W/m^3", BONE_SOURCE),
+    }
+}
+
+const fn hair_canopy(thickness_m: f64, low: f64, high: f64) -> TissueLayerSpec {
+    TissueLayerSpec {
+        name: "Hair canopy (keratin + air)",
+        thickness_m: prop(thickness_m, low, high, "m", THICKNESS_SOURCE),
+        // Effective medium: sparse keratin fibres in air, so both the density
+        // and the conductivity are far below solid keratin.
+        density_kg_per_m3: prop(250.0, 100.0, 500.0, "kg/m^3", KERATIN_SOURCE),
+        specific_heat_j_per_kg_k: prop(1500.0, 1000.0, 2000.0, "J/(kg K)", KERATIN_SOURCE),
+        conductivity_w_per_m_k: prop(0.100, 0.050, 0.200, "W/(m K)", KERATIN_SOURCE),
+        perfusion_per_s: prop(0.0, 0.0, 0.0, "1/s", "Hair is not perfused."),
+        metabolic_w_per_m3: prop(0.0, 0.0, 0.0, "W/m^3", "Hair is metabolically inert."),
+    }
+}
+
+const fn scalp_skin(thickness_m: f64, low: f64, high: f64) -> TissueLayerSpec {
+    TissueLayerSpec {
+        name: "Scalp skin",
+        thickness_m: prop(thickness_m, low, high, "m", THICKNESS_SOURCE),
+        density_kg_per_m3: prop(1150.0, 1100.0, 1250.0, "kg/m^3", TISSUE_SOURCE),
+        specific_heat_j_per_kg_k: prop(3400.0, 3200.0, 3700.0, "J/(kg K)", TISSUE_SOURCE),
+        conductivity_w_per_m_k: prop(0.340, 0.300, 0.450, "W/(m K)", TISSUE_SOURCE),
+        // The scalp is among the most vascular skin sites.
+        perfusion_per_s: prop(0.0030, 0.0010, 0.0120, "1/s", TISSUE_SOURCE),
+        metabolic_w_per_m3: prop(500.0, 200.0, 900.0, "W/m^3", TISSUE_SOURCE),
+    }
+}
+
+const fn galea(thickness_m: f64, low: f64, high: f64) -> TissueLayerSpec {
+    TissueLayerSpec {
+        name: "Galea / sub-galeal fat",
+        thickness_m: prop(thickness_m, low, high, "m", THICKNESS_SOURCE),
+        density_kg_per_m3: prop(1000.0, 900.0, 1050.0, "kg/m^3", TISSUE_SOURCE),
+        specific_heat_j_per_kg_k: prop(2500.0, 2300.0, 2800.0, "J/(kg K)", TISSUE_SOURCE),
+        conductivity_w_per_m_k: prop(0.210, 0.160, 0.260, "W/(m K)", TISSUE_SOURCE),
+        perfusion_per_s: prop(0.0008, 0.0002, 0.0030, "1/s", TISSUE_SOURCE),
+        metabolic_w_per_m3: prop(300.0, 150.0, 600.0, "W/m^3", TISSUE_SOURCE),
+    }
+}
+
+const fn cartilage(name: &'static str, thickness_m: f64, low: f64, high: f64) -> TissueLayerSpec {
+    TissueLayerSpec {
+        name,
+        thickness_m: prop(thickness_m, low, high, "m", THICKNESS_SOURCE),
+        density_kg_per_m3: prop(1100.0, 1050.0, 1150.0, "kg/m^3", CARTILAGE_SOURCE),
+        specific_heat_j_per_kg_k: prop(3568.0, 3200.0, 3800.0, "J/(kg K)", CARTILAGE_SOURCE),
+        conductivity_w_per_m_k: prop(0.490, 0.210, 0.550, "W/(m K)", CARTILAGE_SOURCE),
+        // Avascular.
+        perfusion_per_s: prop(0.0, 0.0, 0.0, "1/s", "Cartilage is avascular."),
+        metabolic_w_per_m3: prop(150.0, 50.0, 400.0, "W/m^3", CARTILAGE_SOURCE),
+    }
+}
+
+const fn cell_construct(thickness_m: f64, low: f64, high: f64) -> TissueLayerSpec {
+    TissueLayerSpec {
+        name: "Cultured cell construct",
+        thickness_m: prop(thickness_m, low, high, "m", THICKNESS_SOURCE),
+        density_kg_per_m3: prop(1050.0, 1010.0, 1100.0, "kg/m^3", INVITRO_SOURCE),
+        specific_heat_j_per_kg_k: prop(3900.0, 3700.0, 4100.0, "J/(kg K)", INVITRO_SOURCE),
+        conductivity_w_per_m_k: prop(0.520, 0.450, 0.600, "W/(m K)", INVITRO_SOURCE),
+        perfusion_per_s: prop(0.0, 0.0, 0.0, "1/s", "No perfusion in vitro."),
+        metabolic_w_per_m3: prop(0.0, 0.0, 0.0, "W/m^3", INVITRO_SOURCE),
+    }
+}
+
+const fn culture_medium(name: &'static str, thickness_m: f64) -> TissueLayerSpec {
+    TissueLayerSpec {
+        name,
+        thickness_m: prop(thickness_m, thickness_m, thickness_m, "m", THICKNESS_SOURCE),
+        density_kg_per_m3: prop(1000.0, 995.0, 1010.0, "kg/m^3", INVITRO_SOURCE),
+        specific_heat_j_per_kg_k: prop(4180.0, 4150.0, 4200.0, "J/(kg K)", INVITRO_SOURCE),
+        conductivity_w_per_m_k: prop(0.600, 0.580, 0.620, "W/(m K)", INVITRO_SOURCE),
+        perfusion_per_s: prop(0.0, 0.0, 0.0, "1/s", "No perfusion in vitro."),
+        metabolic_w_per_m3: prop(0.0, 0.0, 0.0, "W/m^3", INVITRO_SOURCE),
+    }
+}
+
+const CORTICAL_BONE_LAYERS: &[TissueLayerSpec] = &[
+    skin_cover(0.001_500, 0.001_000, 0.002_500),
+    cortical_bone("Cortical bone", 0.004_000, 0.002_000, 0.007_000),
+    trabecular_bone(0.006_000),
+    yellow_marrow(0.020_000),
+];
+
+const SCALP_HAIR_LAYERS: &[TissueLayerSpec] = &[
+    hair_canopy(0.003_000, 0.001_000, 0.010_000),
+    scalp_skin(0.001_800, 0.001_000, 0.003_000),
+    galea(0.003_000, 0.001_000, 0.006_000),
+    cortical_bone("Skull (outer table)", 0.006_000, 0.003_000, 0.009_000),
+    trabecular_bone(0.018_000),
+];
+
+const CARTILAGE_LAYERS: &[TissueLayerSpec] = &[
+    cartilage("Superficial cartilage", 0.000_800, 0.000_400, 0.001_500),
+    cartilage("Deep cartilage", 0.001_500, 0.001_000, 0.003_000),
+    cortical_bone("Subchondral bone", 0.003_000, 0.001_500, 0.005_000),
+    yellow_marrow(0.020_000),
+];
+
+const CELL_MEMBRANE_LAYERS: &[TissueLayerSpec] = &[
+    cell_construct(0.000_200, 0.000_100, 0.000_500),
+    culture_medium("Culture medium", 0.001_800),
+    culture_medium("Culture medium (deep)", 0.004_000),
+];
+
+const BONE_CITATIONS: &[&str] = &[
+    "Biyikli S, Modest MF, Tarr R (1986). Measurements of thermal properties for human femora. J Biomed Mater Res 20(9):1335-1345.",
+    "Hasgall PA et al. IT'IS Database for thermal and electromagnetic parameters of biological tissues.",
+    "Duck FA (1990). Physical Properties of Tissue. Academic Press.",
+];
+
+const HAIR_CITATIONS: &[&str] = &[
+    "Hasgall PA et al. IT'IS Database (skin, fat, cortical bone).",
+    "Keratin fibre thermal conductivity ~0.2 W/(m K) (materials literature); effective canopy value reduced by entrained air.",
+    "Duck FA (1990). Physical Properties of Tissue. Academic Press.",
+];
+
+const CARTILAGE_CITATIONS: &[&str] = &[
+    "Hasgall PA et al. IT'IS Database (cartilage, bone).",
+    "Duck FA (1990). Physical Properties of Tissue. Academic Press.",
+];
+
+const CELL_CITATIONS: &[&str] = &[
+    "Aqueous/cytoplasm properties approximated by water near 310 K (CRC Handbook of Chemistry and Physics).",
+    "Scale note: a molecular lipid bilayer is ~5 nm; this profile is a bulk-thermal analogue of a cultured construct, not a resolved membrane.",
+];
+
 pub static SKIN_PROFILES: &[SkinProfile] = &[
     SkinProfile {
         id: "volar-forearm",
@@ -208,6 +419,9 @@ pub static SKIN_PROFILES: &[SkinProfile] = &[
         site: "Volar (inner) forearm",
         description:
             "Thin epidermis and moderate dermis. The site most thermal-injury threshold work was performed on.",
+        shallow_marker_label: SKIN_SHALLOW_MARKER,
+        deep_marker_label: SKIN_DEEP_MARKER,
+        category: "Skin",
         baseline_skin_c: prop(33.0, 30.0, 35.0, "degC", BASELINE_SOURCE),
         core_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
         blood_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
@@ -223,6 +437,9 @@ pub static SKIN_PROFILES: &[SkinProfile] = &[
         site: "Palmar hand",
         description:
             "Thick stratum corneum raises the surface thermal resistance and delays deep heating.",
+        shallow_marker_label: SKIN_SHALLOW_MARKER,
+        deep_marker_label: SKIN_DEEP_MARKER,
+        category: "Skin",
         baseline_skin_c: prop(33.5, 30.0, 36.0, "degC", BASELINE_SOURCE),
         core_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
         blood_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
@@ -238,6 +455,9 @@ pub static SKIN_PROFILES: &[SkinProfile] = &[
         site: "Distal finger pad",
         description:
             "Thick epidermis over shallow tissue. Small contact patches here are the least likely to satisfy the 1D assumption.",
+        shallow_marker_label: SKIN_SHALLOW_MARKER,
+        deep_marker_label: SKIN_DEEP_MARKER,
+        category: "Skin",
         baseline_skin_c: prop(32.0, 28.0, 35.0, "degC", BASELINE_SOURCE),
         core_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
         blood_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
@@ -252,6 +472,9 @@ pub static SKIN_PROFILES: &[SkinProfile] = &[
         label: "Upper back",
         site: "Upper back / scapular",
         description: "Thick dermis with a substantial fat layer beneath.",
+        shallow_marker_label: SKIN_SHALLOW_MARKER,
+        deep_marker_label: SKIN_DEEP_MARKER,
+        category: "Skin",
         baseline_skin_c: prop(34.0, 32.0, 36.0, "degC", BASELINE_SOURCE),
         core_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
         blood_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
@@ -266,6 +489,9 @@ pub static SKIN_PROFILES: &[SkinProfile] = &[
         label: "Abdomen",
         site: "Anterior abdominal wall",
         description: "Deep subcutaneous fat strongly insulates the deeper tissue.",
+        shallow_marker_label: SKIN_SHALLOW_MARKER,
+        deep_marker_label: SKIN_DEEP_MARKER,
+        category: "Skin",
         baseline_skin_c: prop(34.0, 32.0, 36.0, "degC", BASELINE_SOURCE),
         core_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
         blood_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
@@ -274,6 +500,79 @@ pub static SKIN_PROFILES: &[SkinProfile] = &[
         layers: ABDOMEN_LAYERS,
         citations: COMMON_CITATIONS,
         review_status: UNREVIEWED,
+    },
+    SkinProfile {
+        id: "cortical-bone",
+        label: "Bone (subcutaneous, shin)",
+        site: "Anterior tibia (bone just under thin skin)",
+        description:
+            "Thin skin directly over cortical bone, then trabecular bone and marrow. A site where a device heats bone with almost no soft-tissue buffer.",
+        shallow_marker_label: "Skin–bone interface",
+        deep_marker_label: "Cortical bone base",
+        category: "Bone",
+        baseline_skin_c: prop(33.0, 30.0, 35.0, "degC", BASELINE_SOURCE),
+        core_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
+        blood_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
+        blood_density_kg_per_m3: prop(1060.0, 1040.0, 1070.0, "kg/m^3", TISSUE_SOURCE),
+        blood_specific_heat_j_per_kg_k: prop(3770.0, 3600.0, 3900.0, "J/(kg K)", TISSUE_SOURCE),
+        layers: CORTICAL_BONE_LAYERS,
+        citations: BONE_CITATIONS,
+        review_status: UNREVIEWED,
+    },
+    SkinProfile {
+        id: "scalp-hair",
+        label: "Scalp with hair",
+        site: "Haired scalp over skull",
+        description:
+            "An insulating hair canopy over vascular scalp skin, galea and skull. The hair canopy is modelled as an effective keratin-and-air medium, so it strongly buffers surface heat.",
+        shallow_marker_label: "Scalp surface (under hair)",
+        deep_marker_label: "Scalp base (sub-galeal plane)",
+        category: "Skin / adnexa",
+        baseline_skin_c: prop(34.5, 33.0, 36.0, "degC", BASELINE_SOURCE),
+        core_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
+        blood_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
+        blood_density_kg_per_m3: prop(1060.0, 1040.0, 1070.0, "kg/m^3", TISSUE_SOURCE),
+        blood_specific_heat_j_per_kg_k: prop(3770.0, 3600.0, 3900.0, "J/(kg K)", TISSUE_SOURCE),
+        layers: SCALP_HAIR_LAYERS,
+        citations: HAIR_CITATIONS,
+        review_status: UNREVIEWED,
+    },
+    SkinProfile {
+        id: "articular-cartilage",
+        label: "Articular cartilage (joint)",
+        site: "Hyaline cartilage over subchondral bone",
+        description:
+            "Avascular hyaline cartilage over subchondral bone and marrow. With no perfusion to carry heat away, the cartilage relies on conduction alone.",
+        shallow_marker_label: "Mid-cartilage zone",
+        deep_marker_label: "Osteochondral (cartilage–bone) junction",
+        category: "Cartilage",
+        baseline_skin_c: prop(32.0, 28.0, 35.0, "degC", BASELINE_SOURCE),
+        core_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
+        blood_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
+        blood_density_kg_per_m3: prop(1060.0, 1040.0, 1070.0, "kg/m^3", TISSUE_SOURCE),
+        blood_specific_heat_j_per_kg_k: prop(3770.0, 3600.0, 3900.0, "J/(kg K)", TISSUE_SOURCE),
+        layers: CARTILAGE_LAYERS,
+        citations: CARTILAGE_CITATIONS,
+        review_status: UNREVIEWED,
+    },
+    SkinProfile {
+        id: "cell-membrane",
+        label: "Cell membrane / monolayer (in vitro)",
+        site: "Cultured cell construct in medium",
+        description:
+            "A cultured-cell construct in aqueous medium, for in-vitro thermal-dose exploration. A real lipid bilayer is nanometres thick, so this is a bulk-thermal analogue rather than a resolved membrane, and the skin burn thresholds do not physically apply.",
+        shallow_marker_label: "Construct base",
+        deep_marker_label: "Construct–medium column",
+        category: "In-vitro",
+        baseline_skin_c: prop(37.0, 36.0, 37.5, "degC", BASELINE_SOURCE),
+        core_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
+        blood_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
+        blood_density_kg_per_m3: prop(1060.0, 1040.0, 1070.0, "kg/m^3", TISSUE_SOURCE),
+        blood_specific_heat_j_per_kg_k: prop(3770.0, 3600.0, 3900.0, "J/(kg K)", TISSUE_SOURCE),
+        layers: CELL_MEMBRANE_LAYERS,
+        citations: CELL_CITATIONS,
+        review_status:
+            "In-vitro bulk-thermal analogue. Burn-depth and Ω interpretation are not physically meaningful at cellular scale; use for relative thermal-dose comparison only.",
     },
 ];
 
