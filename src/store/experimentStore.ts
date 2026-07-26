@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { computePoseForContactOnSkin } from "../lib/alignContactToSkin";
+import type { AnatomyLimbId, AnatomyLimbRotations } from "../lib/anatomyLimbs";
 import {
   fetchModelCatalog,
   runSimulation,
@@ -39,6 +40,8 @@ export type ContactPoint = {
   label: string;
   position: Vec3;
   normal: Vec3;
+  /** Mesh that owns these local coordinates. */
+  surface: "design" | "body";
 };
 
 export type StimulusAssignment = {
@@ -80,12 +83,29 @@ type ExperimentState = {
   importError: string | null;
   /** Reveal the internal tissue layers and bone of the forearm model. */
   showAnatomy: boolean;
+  /** Load and display the Z-Anatomy human body in the viewport. */
+  showBody: boolean;
+  anatomyPosition: Vec3;
+  anatomyRotation: Vec3;
+  anatomyScale: Vec3;
+  anatomyLimbRotations: AnatomyLimbRotations;
+  selectedAnatomyLimb: AnatomyLimbId | null;
+  anatomyTransformEpoch: number;
   /** Timeline position (seconds) used to animate the simulated response. */
   playbackTimeS: number;
   isPlaying: boolean;
 
   setTool: (tool: ToolMode) => void;
   toggleAnatomy: () => void;
+  toggleShowBody: () => void;
+  setAnatomyTransform: (partial: {
+    position?: Vec3;
+    rotation?: Vec3;
+    scale?: Vec3;
+  }) => void;
+  setAnatomyLimbRotation: (limb: AnatomyLimbId, rotation: Vec3) => void;
+  setSelectedAnatomyLimb: (limb: AnatomyLimbId | null) => void;
+  resetAnatomyTransform: () => void;
   setPlaybackTime: (timeS: number) => void;
   setPlaying: (value: boolean) => void;
   setSidebarTab: (tab: SidebarTab) => void;
@@ -100,7 +120,11 @@ type ExperimentState = {
   }) => void;
   resetTransform: () => void;
 
-  addContactPoint: (input: { position: Vec3; normal: Vec3 }) => string;
+  addContactPoint: (input: {
+    position: Vec3;
+    normal: Vec3;
+    surface?: ContactPoint["surface"];
+  }) => string;
   selectContact: (id: string | null) => void;
   removeContactPoint: (id: string) => void;
   clearContactPoints: () => void;
@@ -129,9 +153,12 @@ type ExperimentState = {
   getExperimentDefinition: () => ExperimentDefinition;
 };
 
-const DEFAULT_POSITION: Vec3 = [0, 0, 0];
+const DEFAULT_ANATOMY_POSITION: Vec3 = [0, 0, 0];
+const DEFAULT_ANATOMY_ROTATION: Vec3 = [0, 0, 0];
+const DEFAULT_ANATOMY_SCALE: Vec3 = [1, 1, 1];
 const DEFAULT_ROTATION: Vec3 = [0, 0, 0];
 const DEFAULT_SCALE: Vec3 = [1, 1, 1];
+const DEFAULT_POSITION: Vec3 = [0, 0, 0];
 
 function makeAssignment(contactPointId: string): StimulusAssignment {
   return {
@@ -164,11 +191,50 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
   isImporting: false,
   importError: null,
   showAnatomy: false,
+  showBody: false,
+  anatomyPosition: DEFAULT_ANATOMY_POSITION,
+  anatomyRotation: DEFAULT_ANATOMY_ROTATION,
+  anatomyScale: DEFAULT_ANATOMY_SCALE,
+  anatomyLimbRotations: {},
+  selectedAnatomyLimb: null,
+  anatomyTransformEpoch: 0,
   playbackTimeS: 0,
   isPlaying: false,
 
   setTool: (tool) => set({ tool }),
   toggleAnatomy: () => set((state) => ({ showAnatomy: !state.showAnatomy })),
+  toggleShowBody: () =>
+    set((state) => {
+      const showBody = !state.showBody;
+      return {
+        showBody,
+        tool:
+          showBody && (state.tool === "orbit" || state.tool === "contact")
+            ? ("translate" as const)
+            : state.tool,
+        selectedAnatomyLimb: showBody ? state.selectedAnatomyLimb : null,
+      };
+    }),
+  setAnatomyTransform: (partial) =>
+    set((state) => ({
+      anatomyPosition: partial.position ?? state.anatomyPosition,
+      anatomyRotation: partial.rotation ?? state.anatomyRotation,
+      anatomyScale: partial.scale ?? state.anatomyScale,
+    })),
+  setAnatomyLimbRotation: (limb, rotation) =>
+    set((state) => ({
+      anatomyLimbRotations: { ...state.anatomyLimbRotations, [limb]: rotation },
+    })),
+  setSelectedAnatomyLimb: (selectedAnatomyLimb) => set({ selectedAnatomyLimb }),
+  resetAnatomyTransform: () =>
+    set((state) => ({
+      anatomyPosition: [...DEFAULT_ANATOMY_POSITION] as Vec3,
+      anatomyRotation: [...DEFAULT_ANATOMY_ROTATION] as Vec3,
+      anatomyScale: [...DEFAULT_ANATOMY_SCALE] as Vec3,
+      anatomyLimbRotations: {},
+      selectedAnatomyLimb: null,
+      anatomyTransformEpoch: state.anatomyTransformEpoch + 1,
+    })),
   setPlaybackTime: (playbackTimeS) => set({ playbackTimeS }),
   setPlaying: (isPlaying) => set({ isPlaying }),
   setSidebarTab: (sidebarTab) => set({ sidebarTab }),
@@ -227,7 +293,7 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       transformEpoch: state.transformEpoch + 1,
     })),
 
-  addContactPoint: ({ position, normal }) => {
+  addContactPoint: ({ position, normal, surface = "design" }) => {
     const id = crypto.randomUUID();
 
     set((state) => {
@@ -236,13 +302,17 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
         label: `CP-${state.contactPoints.length + 1}`,
         position,
         normal,
+        surface,
       };
 
-      const pose = computePoseForContactOnSkin(contact, {
-        position: state.position,
-        rotation: state.rotation,
-        scale: state.scale,
-      });
+      const pose =
+        surface === "design"
+          ? computePoseForContactOnSkin(contact, {
+              position: state.position,
+              rotation: state.rotation,
+              scale: state.scale,
+            })
+          : null;
 
       return {
         contactPoints: [...state.contactPoints, contact],
@@ -250,9 +320,9 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
         selectedContactId: id,
         sidebarTab: "contacts" as const,
         tool: "contact" as const,
-        position: pose.position,
-        rotation: pose.rotation,
-        transformEpoch: state.transformEpoch + 1,
+        position: pose?.position ?? state.position,
+        rotation: pose?.rotation ?? state.rotation,
+        transformEpoch: pose ? state.transformEpoch + 1 : state.transformEpoch,
       };
     });
 
@@ -264,7 +334,7 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
   snapContactToSkin: (contactPointId) =>
     set((state) => {
       const contact = state.contactPoints.find((c) => c.id === contactPointId);
-      if (!contact) return state;
+      if (!contact || contact.surface !== "design") return state;
 
       const pose = computePoseForContactOnSkin(contact, {
         position: state.position,

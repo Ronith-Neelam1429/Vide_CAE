@@ -1,18 +1,17 @@
 import { Grid, OrbitControls } from "@react-three/drei";
-import { useThree } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useRef } from "react";
 import {
   Color,
   MOUSE,
   TOUCH,
-  type Group,
+  Vector3,
   type PerspectiveCamera,
 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { useExperimentStore } from "../../store/experimentStore";
 import { ArmModel } from "./ArmModel";
 import { ImportedDesign } from "./ImportedDesign";
-import { usePlaneDrag } from "./usePlaneDrag";
 
 function CameraSetup() {
   const { camera, gl } = useThree();
@@ -32,43 +31,38 @@ function CameraSetup() {
   return null;
 }
 
-function PlaceholderCube() {
-  const hasDesign = useExperimentStore((s) => s.design !== null);
-  const tool = useExperimentStore((s) => s.tool);
-  const pivotRef = useRef<Group>(null);
-  const dragMode =
-    tool === "translate" ? "translate" : tool === "rotate" ? "rotate" : null;
-  const { onPointerDown, onPointerOver, onPointerOut } = usePlaneDrag(
-    pivotRef,
-    hasDesign ? null : dragMode,
-    { syncStore: false },
-  );
-
-  if (hasDesign) return null;
-
-  return (
-    <group
-      ref={pivotRef}
-      position={[0, 0.5, 0]}
-      onPointerDown={onPointerDown}
-      onPointerOver={onPointerOver}
-      onPointerOut={onPointerOut}
-    >
-      <mesh castShadow receiveShadow>
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial
-          color="#5a6570"
-          metalness={0.35}
-          roughness={0.45}
-        />
-      </mesh>
-    </group>
-  );
-}
-
 function CadControls() {
-  const { gl } = useThree();
+  const { camera, gl } = useThree();
   const controlsRef = useRef<OrbitControlsImpl>(null);
+  const pressedKeys = useRef(new Set<string>());
+
+  useFrame((_, delta) => {
+    const keys = pressedKeys.current;
+    if (keys.size === 0) return;
+
+    const orbit = controlsRef.current;
+    if (!orbit) return;
+
+    const forward = new Vector3();
+    const right = new Vector3();
+    const offset = new Vector3();
+    camera.getWorldDirection(forward);
+    right.crossVectors(forward, camera.up).normalize();
+
+    const distance = camera.position.distanceTo(orbit.target);
+    const speed = Math.max(1.6, distance * 0.55) * delta;
+    if (keys.has("ArrowLeft")) offset.addScaledVector(right, -speed);
+    if (keys.has("ArrowRight")) offset.addScaledVector(right, speed);
+    if (keys.has("ArrowUp")) offset.addScaledVector(camera.up, speed);
+    if (keys.has("ArrowDown")) offset.addScaledVector(camera.up, -speed);
+    if (offset.lengthSq() === 0) return;
+
+    // Move the camera and orbit target together so the view pans without
+    // rotating either the camera or the body.
+    camera.position.add(offset);
+    orbit.target.add(offset);
+    orbit.update();
+  });
 
   useEffect(() => {
     const orbit = controlsRef.current;
@@ -89,18 +83,40 @@ function CadControls() {
     };
 
     const onBlur = () => setLeftButton(false);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.key.startsWith("Arrow")) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "SELECT" ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      pressedKeys.current.add(event.key);
+      event.preventDefault();
+    };
+    const onKeyRelease = (event: KeyboardEvent) => {
+      pressedKeys.current.delete(event.key);
+    };
 
     const element = gl.domElement;
     element.addEventListener("pointerdown", syncFromEvent, true);
     window.addEventListener("keydown", syncFromEvent);
     window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyRelease);
     window.addEventListener("blur", onBlur);
 
     return () => {
       element.removeEventListener("pointerdown", syncFromEvent, true);
       window.removeEventListener("keydown", syncFromEvent);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyRelease);
       window.removeEventListener("blur", onBlur);
+      pressedKeys.current.clear();
       setLeftButton(false);
     };
   }, [gl]);
@@ -133,6 +149,8 @@ function CadControls() {
 }
 
 export function Scene() {
+  const showBody = useExperimentStore((s) => s.showBody);
+
   return (
     <>
       <CameraSetup />
@@ -154,7 +172,6 @@ export function Scene() {
         shadow-camera-bottom={-8}
         shadow-bias={-0.0004}
       />
-      {/* Warm back/rim light gives skin a subsurface-like glow at the edges. */}
       <directionalLight position={[-6, 3, -5]} intensity={0.55} color="#ff9d6f" />
       <pointLight position={[0, 3.5, 3]} intensity={0.35} color="#ffd9c2" distance={16} />
 
@@ -171,8 +188,7 @@ export function Scene() {
         position={[0, -0.001, 0]}
       />
 
-      <ArmModel />
-      <PlaceholderCube />
+      {showBody && <ArmModel />}
       <ImportedDesign />
       <CadControls />
     </>

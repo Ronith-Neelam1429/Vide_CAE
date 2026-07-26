@@ -48,19 +48,17 @@ Additional tissue-property references beyond the skin sources:
   of biological tissues.*
 - Duck FA (1990). *Physical Properties of Tissue.* Academic Press.
 
-## The 3D forearm and animated response
+## The 3D body and animated response
 
-The workspace is a realistic forearm — skin over subcutaneous fat, muscle and
-the radius and ulna — not a flat plane. Toggle **Show anatomy** to make the skin
-translucent and reveal the internal layers and bone. Contacts are still placed
-and posed against the crest of the arm, so the proven placement workflow is
-unchanged.
+The workspace renders the complete **Z-Anatomy** human body — all bones and
+muscles — not procedural placeholders or a flat plane. Toggle **Show anatomy**
+to fade the muscle envelope and reveal the full skeleton underneath. Use
+**Anatomy credit** in the viewport for full CC BY-SA attribution.
 
 After a run, the **Results** panel shows a playback timeline. Scrub or play it to
-watch the *actual solver output* animate on the arm: a heat contact drives a
-hot-spot that reddens and cools with the real surface-temperature series; a
-mechanical contact presses an indenter into the arm and recovers. The animation
-is a view of the simulation data, never a canned effect.
+watch the *actual solver output* animate on the forearm: a heat contact drives a
+hot-spot that reddens and cools with the real surface-temperature series.
+The animation is a view of the simulation data, never a canned effect.
 
 ## Stimuli
 

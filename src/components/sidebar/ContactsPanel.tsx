@@ -30,6 +30,7 @@ function describeAssignment(assignment: StimulusAssignment | undefined): string 
 
 export function ContactsPanel() {
   const design = useExperimentStore((s) => s.design);
+  const showBody = useExperimentStore((s) => s.showBody);
   const contactPoints = useExperimentStore((s) => s.contactPoints);
   const assignments = useExperimentStore((s) => s.assignments);
   const selectedContactId = useExperimentStore((s) => s.selectedContactId);
@@ -46,12 +47,13 @@ export function ContactsPanel() {
     (a) => a.contactPointId === selectedContactId,
   );
 
-  if (!design) {
+  if (!design && !showBody) {
     return (
       <div className="sidebar__empty">
-        <div className="sidebar__empty-title">Import a design first</div>
+        <div className="sidebar__empty-title">Render a body or import a design</div>
         <p className="sidebar__empty-copy">
-          Contact points are placed on an imported STL/OBJ surface.
+          Stimulus planes can be placed on the human body; contact points can
+          also be marked on an imported STL/OBJ surface.
         </p>
       </div>
     );
@@ -65,7 +67,7 @@ export function ContactsPanel() {
           className="sidebar__btn sidebar__btn--primary"
           onClick={() => setTool("contact")}
         >
-          Pick contacts on mesh
+          Add stimulus plane
         </button>
         {contactPoints.length > 0 && (
           <>
@@ -89,8 +91,8 @@ export function ContactsPanel() {
       </div>
 
       <p className="contacts-panel__help">
-        Click the design to place a contact. Vide rotates the part so that
-        point presses into the skin patch (normal into the tissue).
+        With the body rendered, click its surface to anchor a stimulus plane.
+        With a design selected, clicking marks its skin-contact point.
       </p>
 
       <div className="sidebar__section-label" style={{ paddingLeft: 0 }}>
@@ -157,14 +159,16 @@ export function ContactsPanel() {
             </button>
           </div>
 
-          <button
-            type="button"
-            className="sidebar__btn sidebar__btn--primary"
-            style={{ marginBottom: 8 }}
-            onClick={() => snapContactToSkin(selected.id)}
-          >
-            Snap contact to skin
-          </button>
+          {selected.surface === "design" && (
+            <button
+              type="button"
+              className="sidebar__btn sidebar__btn--primary"
+              style={{ marginBottom: 8 }}
+              onClick={() => snapContactToSkin(selected.id)}
+            >
+              Snap contact to skin
+            </button>
+          )}
 
           {selectedAssignment && (
             <div className="contacts-detail__type">

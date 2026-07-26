@@ -1352,6 +1352,62 @@
   transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
 
+.viewport-toggle--muted {
+  top: 72px;
+}
+
+.anatomy-attribution {
+  position: absolute;
+  top: 108px;
+  right: 12px;
+  width: min(320px, calc(100% - 24px));
+  pointer-events: auto;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--vide-radius-sm);
+  background: rgba(16, 16, 16, 0.92);
+  color: var(--vide-text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+  backdrop-filter: blur(8px);
+  box-shadow: var(--vide-shadow-panel);
+}
+
+.anatomy-attribution__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  color: var(--vide-text);
+}
+
+.anatomy-attribution__close {
+  padding: 2px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--vide-radius-sm);
+  background: transparent;
+  color: var(--vide-text-muted);
+  font-size: 10px;
+}
+
+.anatomy-attribution__body {
+  margin: 0 0 8px;
+}
+
+.anatomy-attribution__list {
+  margin: 0 0 8px 16px;
+  padding: 0;
+}
+
+.anatomy-attribution__license {
+  margin: 0;
+}
+
+.anatomy-attribution__license a {
+  color: var(--vide-accent-strong);
+}
+
 .viewport-toggle:hover {
   background: rgba(40, 40, 40, 0.85);
   color: var(--vide-text);

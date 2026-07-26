@@ -30,6 +30,12 @@ function DesignPanel() {
   const setSidebarTab = useExperimentStore((s) => s.setSidebarTab);
   const setTool = useExperimentStore((s) => s.setTool);
   const setDesign = useExperimentStore((s) => s.setDesign);
+  const showBody = useExperimentStore((s) => s.showBody);
+  const toggleShowBody = useExperimentStore((s) => s.toggleShowBody);
+  const resetAnatomyTransform = useExperimentStore((s) => s.resetAnatomyTransform);
+  const anatomyPosition = useExperimentStore((s) => s.anatomyPosition);
+  const anatomyRotation = useExperimentStore((s) => s.anatomyRotation);
+  const anatomyScale = useExperimentStore((s) => s.anatomyScale);
 
   return (
     <>
@@ -144,14 +150,65 @@ function DesignPanel() {
       >
         Scene
       </div>
-      <div className="sidebar__tree-row">
-        <span className="sidebar__tree-dot" style={{ background: "#d4a08a" }} />
-        <span className="sidebar__tree-label">Skin surface (4 × 4)</span>
+      <div className="sidebar__actions">
+        <button
+          type="button"
+          className={`sidebar__btn${showBody ? "" : " sidebar__btn--primary"}`}
+          onClick={() => toggleShowBody()}
+        >
+          {showBody ? "Hide human body" : "Render human body"}
+        </button>
       </div>
-      {!design && (
-        <div className="sidebar__tree-row">
-          <span className="sidebar__tree-dot" />
-          <span className="sidebar__tree-label">Placeholder Cube</span>
+      {showBody ? (
+        <>
+          <div className="sidebar__tree-row is-selected" style={{ marginTop: 10 }}>
+            <span className="sidebar__tree-dot" style={{ background: "#d4a08a" }} />
+            <span className="sidebar__tree-label">Z-Anatomy human body</span>
+          </div>
+          <div className="sidebar__meta-line">Bones & muscles · CC BY-SA 4.0</div>
+          <div className="sidebar__section-label" style={{ paddingLeft: 0 }}>
+            Body placement
+          </div>
+          <div className="sidebar__readout">
+            <div>
+              <span>Position</span>
+              <code>{formatVec(anatomyPosition)}</code>
+            </div>
+            <div>
+              <span>Rotation°</span>
+              <code>{formatVec(toDegrees(anatomyRotation), 1)}</code>
+            </div>
+            <div>
+              <span>Scale</span>
+              <code>{formatVec(anatomyScale)}</code>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="sidebar__btn"
+            style={{ marginTop: 8 }}
+            onClick={() => resetAnatomyTransform()}
+          >
+            Reset body placement
+          </button>
+          <button
+            type="button"
+            className="sidebar__btn sidebar__btn--primary"
+            style={{ marginTop: 8 }}
+            onClick={() => {
+              setSidebarTab("contacts");
+              setTool("contact");
+            }}
+          >
+            Add stimulus plane
+          </button>
+        </>
+      ) : (
+        <div className="sidebar__empty" style={{ marginTop: 10 }}>
+          <p className="sidebar__empty-copy">
+            Render the human body to inspect anatomy, pose limbs, and place
+            devices against skin.
+          </p>
         </div>
       )}
     </>
@@ -163,12 +220,13 @@ export function Sidebar() {
   const setSidebarTab = useExperimentStore((s) => s.setSidebarTab);
   const setTool = useExperimentStore((s) => s.setTool);
   const design = useExperimentStore((s) => s.design);
+  const showBody = useExperimentStore((s) => s.showBody);
   const contactCount = useExperimentStore((s) => s.contactPoints.length);
   const simulationStatus = useExperimentStore((s) => s.simulationStatus);
 
   const openTab = (tab: SidebarTab) => {
     setSidebarTab(tab);
-    if (tab === "contacts" && design) {
+    if (tab === "contacts" && (design || showBody)) {
       setTool("contact");
     }
   };
@@ -189,8 +247,8 @@ export function Sidebar() {
         : "Click the mesh to add contacts"
       : sidebarTab === "results"
         ? resultsFooter
-      : design
-        ? "Design ready · place contacts next"
+        : design || showBody
+          ? "Surface ready · place a stimulus"
         : "Ready · import a mesh to begin";
 
   return (
@@ -209,7 +267,7 @@ export function Sidebar() {
             type="button"
             className={`sidebar__tab${sidebarTab === "contacts" ? " is-active" : ""}`}
             onClick={() => openTab("contacts")}
-            disabled={!design}
+            disabled={!design && !showBody}
           >
             Contacts
           </button>
@@ -217,7 +275,7 @@ export function Sidebar() {
             type="button"
             className={`sidebar__tab${sidebarTab === "results" ? " is-active" : ""}`}
             onClick={() => openTab("results")}
-            disabled={!design}
+            disabled={contactCount === 0}
           >
             Results
           </button>

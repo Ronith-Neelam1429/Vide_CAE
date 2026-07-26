@@ -1,70 +1,38 @@
-import { RoundedBox } from "@react-three/drei";
-import { useFrame } from "@react-three/fiber";
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { TransformControls, useGLTF } from "@react-three/drei";
+import { useFrame, useThree } from "@react-three/fiber";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ThreeEvent } from "@react-three/fiber";
 import {
-  BufferAttribute,
-  BufferGeometry,
   CanvasTexture,
   Color,
-  DoubleSide,
+  Group,
+  type Material,
+  Matrix4,
   MeshPhysicalMaterial,
   type Mesh,
+  Vector3,
 } from "three";
-import { createSkinMaps } from "../../lib/skinTexture";
+import { ANATOMY_MODEL_URL } from "../../lib/anatomyAssets";
+import type { AnatomyLimbId } from "../../lib/anatomyLimbs";
+import {
+  applyAnatomyLimbRotations,
+  applyAnatomyVisibility,
+  prepareFullBodyAnatomy,
+} from "../../lib/anatomyModelFit";
 import { sampleSeriesAtTime, temperatureColor } from "../../lib/thermal";
-import { useExperimentStore } from "../../store/experimentStore";
+import { useExperimentStore, type Vec3 } from "../../store/experimentStore";
+import { BodyStimulusPlanes } from "./BodyStimulusPlanes";
+import { usePlaneDrag, type PlaneDragMode } from "./usePlaneDrag";
 
-// Forearm proportions (scene units). The crest of the arm is placed at y = 0 so
-// the existing contact/placement math — which snaps designs onto the y = 0
-// plane — is unchanged; the anatomy renders below that plane.
-const ARM_RADIUS = 1.3;
-const ARM_X0 = -1.9; // elbow end
-const ARM_X1 = 1.7; // wrist end
-const SEG_X = 72;
-const SEG_THETA = 56;
+useGLTF.setDecoderPath("https://www.gstatic.com/draco/versioned/decoders/1.5.7/");
+useGLTF.preload(ANATOMY_MODEL_URL, true);
 
-const RADIUS_BONE = 0.24;
-const ULNA_BONE = 0.26;
-const MAX_DENT_SCENE = 0.4; // visual scale for the indentation animation
-
-/** A forearm surface as an X-axis tube so the crest (θ=0) sits at local +Y. */
-function buildForearmGeometry(): BufferGeometry {
-  const positions: number[] = [];
-  const uvs: number[] = [];
-  const indices: number[] = [];
-
-  for (let i = 0; i <= SEG_X; i += 1) {
-    const fx = i / SEG_X;
-    const x = ARM_X0 + (ARM_X1 - ARM_X0) * fx;
-    // Gentle taper toward the wrist for a more natural silhouette.
-    const r = ARM_RADIUS * (1 - 0.16 * fx);
-    for (let j = 0; j <= SEG_THETA; j += 1) {
-      const theta = (j / SEG_THETA) * Math.PI * 2;
-      const y = r * Math.cos(theta);
-      const z = r * Math.sin(theta);
-      positions.push(x, y, z);
-      uvs.push(fx * 4, (j / SEG_THETA) * 2);
-    }
-  }
-
-  const row = SEG_THETA + 1;
-  for (let i = 0; i < SEG_X; i += 1) {
-    for (let j = 0; j < SEG_THETA; j += 1) {
-      const a = i * row + j;
-      const b = a + row;
-      indices.push(a, b, a + 1, a + 1, b, b + 1);
-    }
-  }
-
-  const geo = new BufferGeometry();
-  const pos = new Float32Array(positions);
-  geo.setAttribute("position", new BufferAttribute(pos, 3));
-  geo.setAttribute("uv", new BufferAttribute(new Float32Array(uvs), 2));
-  geo.setIndex(indices);
-  geo.computeVertexNormals();
-  // Keep an untouched copy so denting is always applied to the rest shape.
-  geo.userData.base = pos.slice();
-  return geo;
+function dragModeForTool(
+  tool: ReturnType<typeof useExperimentStore.getState>["tool"],
+): PlaneDragMode | null {
+  if (tool === "translate") return "translate";
+  if (tool === "rotate") return "rotate";
+  return null;
 }
 
 function radialGradientTexture(): CanvasTexture {
@@ -82,63 +50,13 @@ function radialGradientTexture(): CanvasTexture {
   return new CanvasTexture(canvas);
 }
 
-/** The forearm skin, deformed in real time by the mechanical indentation. */
-function DeformableForearm({
-  geometry,
-  material,
+function ActiveHeatSpot({
+  gradient,
+  anchor,
 }: {
-  geometry: BufferGeometry;
-  material: MeshPhysicalMaterial;
+  gradient: CanvasTexture;
+  anchor: Vector3;
 }) {
-  const meshRef = useRef<Mesh>(null);
-  const lastDepth = useRef(-1);
-
-  useFrame(() => {
-    const mesh = meshRef.current;
-    if (!mesh) return;
-    const state = useExperimentStore.getState();
-    const mech = state.mechanicsResult;
-
-    let depthScene = 0;
-    let sigma = 0.35;
-    if (mech && state.simulationStatus === "complete" && mech.contacts.length > 0) {
-      const contact = mech.contacts.reduce((a, b) =>
-        b.summary.peakIndentationUm > a.summary.peakIndentationUm ? b : a,
-      );
-      const peak = Math.max(contact.summary.peakIndentationUm, 1);
-      const indent =
-        sampleSeriesAtTime(contact.indentationSeries, state.playbackTimeS, "indentationUm") ?? 0;
-      depthScene = (indent / peak) * MAX_DENT_SCENE;
-      sigma = Math.max(0.22, Math.min(0.9, Math.sqrt(contact.inputs.contactAreaMm2 / Math.PI) / 31.5));
-    }
-
-    if (Math.abs(depthScene - lastDepth.current) < 0.0004) return;
-    lastDepth.current = depthScene;
-
-    const pos = geometry.attributes.position as BufferAttribute;
-    const base = geometry.userData.base as Float32Array;
-    const twoSigmaSq = 2 * sigma * sigma;
-    for (let v = 0; v < pos.count; v += 1) {
-      const bx = base[v * 3];
-      const by = base[v * 3 + 1];
-      const bz = base[v * 3 + 2];
-      // Distance from the crest contact (x = 0, θ = 0): along length + arc.
-      const theta = Math.atan2(bz, by);
-      const arc = ARM_RADIUS * theta;
-      const dist2 = bx * bx + arc * arc;
-      const fall = depthScene > 0 ? Math.exp(-dist2 / twoSigmaSq) : 0;
-      const rad = Math.hypot(by, bz) || 1;
-      const push = depthScene * fall;
-      pos.setXYZ(v, bx, by - (by / rad) * push, bz - (bz / rad) * push);
-    }
-    pos.needsUpdate = true;
-    geometry.computeVertexNormals();
-  });
-
-  return <mesh ref={meshRef} geometry={geometry} material={material} castShadow receiveShadow />;
-}
-
-function ActiveHeatSpot({ gradient }: { gradient: CanvasTexture }) {
   const matRef = useRef<MeshPhysicalMaterial>(null);
   const meshRef = useRef<Mesh>(null);
   const baseColor = useMemo(() => new Color(), []);
@@ -147,6 +65,9 @@ function ActiveHeatSpot({ gradient }: { gradient: CanvasTexture }) {
     const mat = matRef.current;
     const mesh = meshRef.current;
     if (!mat || !mesh) return;
+    mesh.position.copy(anchor);
+    mesh.position.y += 0.012;
+
     const state = useExperimentStore.getState();
     const result = state.simulationResult;
     if (!result || state.simulationStatus !== "complete" || result.contacts.length === 0) {
@@ -166,8 +87,8 @@ function ActiveHeatSpot({ gradient }: { gradient: CanvasTexture }) {
   });
 
   return (
-    <mesh ref={meshRef} position={[0, 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]} renderOrder={3}>
-      <circleGeometry args={[1.0, 56]} />
+    <mesh ref={meshRef} rotation={[-Math.PI / 2, 0, 0]} renderOrder={3}>
+      <circleGeometry args={[0.45, 56]} />
       <meshPhysicalMaterial
         ref={matRef}
         map={gradient}
@@ -180,125 +101,221 @@ function ActiveHeatSpot({ gradient }: { gradient: CanvasTexture }) {
   );
 }
 
-function Finger({
-  position,
-  length,
-  radius,
-  rotation = [0, 0, 0],
-  material,
-}: {
-  position: [number, number, number];
-  length: number;
-  radius: number;
-  rotation?: [number, number, number];
-  material: MeshPhysicalMaterial;
-}) {
-  return (
-    <mesh position={position} rotation={rotation} material={material} castShadow>
-      <capsuleGeometry args={[radius, length, 10, 20]} />
-    </mesh>
-  );
+function limbFromIntersection(object: Mesh): AnatomyLimbId | null {
+  if (object.userData.videLimb) {
+    return object.userData.videLimb as AnatomyLimbId;
+  }
+  let found: AnatomyLimbId | null = null;
+  object.traverseAncestors((ancestor) => {
+    if (found) return;
+    if (ancestor.userData.videLimb) {
+      found = ancestor.userData.videLimb as AnatomyLimbId;
+    }
+  });
+  return found;
 }
 
 export function ArmModel() {
+  const { raycaster } = useThree();
   const showAnatomy = useExperimentStore((s) => s.showAnatomy);
-  const maps = useMemo(() => createSkinMaps(1024), []);
-  const gradient = useMemo(() => radialGradientTexture(), []);
-  const geometry = useMemo(() => buildForearmGeometry(), []);
+  const tool = useExperimentStore((s) => s.tool);
+  const anatomyPosition = useExperimentStore((s) => s.anatomyPosition);
+  const anatomyRotation = useExperimentStore((s) => s.anatomyRotation);
+  const anatomyScale = useExperimentStore((s) => s.anatomyScale);
+  const anatomyLimbRotations = useExperimentStore((s) => s.anatomyLimbRotations);
+  const selectedAnatomyLimb = useExperimentStore((s) => s.selectedAnatomyLimb);
+  const anatomyTransformEpoch = useExperimentStore((s) => s.anatomyTransformEpoch);
+  const setAnatomyTransform = useExperimentStore((s) => s.setAnatomyTransform);
+  const setAnatomyLimbRotation = useExperimentStore((s) => s.setAnatomyLimbRotation);
+  const setSelectedAnatomyLimb = useExperimentStore((s) => s.setSelectedAnatomyLimb);
+  const addContactPoint = useExperimentStore((s) => s.addContactPoint);
 
-  const skin = useMemo(() => {
-    const m = new MeshPhysicalMaterial({
-      map: maps.map,
-      roughnessMap: maps.roughnessMap,
-      normalMap: maps.normalMap,
-      roughness: 0.72,
-      metalness: 0.0,
-      sheen: 0.5,
-      sheenColor: new Color("#c9704f"),
-      sheenRoughness: 0.7,
-      clearcoat: 0.08,
-      clearcoatRoughness: 0.6,
-      side: DoubleSide,
-    });
-    m.normalScale.set(0.8, 0.8);
-    return m;
-  }, [maps]);
+  const { scene } = useGLTF(ANATOMY_MODEL_URL, true);
+  const pivotRef = useRef<Group>(null);
+  const [pivot, setPivot] = useState<Group | null>(null);
+  const [limbTarget, setLimbTarget] = useState<Group | null>(null);
+  const suppressWrite = useRef(false);
+  const pointerDownPos = useRef<{ x: number; y: number } | null>(null);
+  const materialCache = useRef(new Map<string, Material>()).current;
+  const gradient = useMemo(() => radialGradientTexture(), []);
+
+  const dragMode = tool === "contact" || tool === "orbit" || tool === "scale" ? null : dragModeForTool(tool);
+  const { onPointerDown, onPointerOver, onPointerOut } = usePlaneDrag(pivotRef, dragMode, {
+    syncStore: false,
+    onTransform: (partial) => {
+      setSelectedAnatomyLimb(null);
+      setAnatomyTransform(partial);
+    },
+  });
+
+  const { model, forearmOverlay, pickCenter, pickSize, limbs } = useMemo(() => {
+    const clone = scene.clone(true);
+    const layout = prepareFullBodyAnatomy(clone);
+    return { model: clone, ...layout };
+  }, [scene]);
 
   useLayoutEffect(() => {
-    skin.transparent = showAnatomy;
-    skin.opacity = showAnatomy ? 0.3 : 1;
-    skin.depthWrite = !showAnatomy;
-    skin.needsUpdate = true;
-  }, [showAnatomy, skin]);
+    applyAnatomyVisibility(model, showAnatomy, materialCache);
+  }, [showAnatomy, model, materialCache]);
+
+  useLayoutEffect(() => {
+    applyAnatomyLimbRotations(limbs, anatomyLimbRotations);
+  }, [limbs, anatomyLimbRotations, anatomyTransformEpoch]);
+
+  useLayoutEffect(() => {
+    const node = pivotRef.current;
+    if (!node) return;
+    suppressWrite.current = true;
+    node.position.set(...anatomyPosition);
+    node.rotation.set(...anatomyRotation);
+    node.scale.set(...anatomyScale);
+    suppressWrite.current = false;
+  }, [anatomyPosition, anatomyRotation, anatomyScale, anatomyTransformEpoch]);
+
+  useLayoutEffect(() => {
+    if (pivotRef.current) setPivot(pivotRef.current);
+  }, [model]);
+
+  useLayoutEffect(() => {
+    if (tool === "rotate" && selectedAnatomyLimb) {
+      setLimbTarget(limbs[selectedAnatomyLimb] ?? null);
+    } else {
+      setLimbTarget(null);
+    }
+  }, [tool, selectedAnatomyLimb, limbs]);
 
   useLayoutEffect(
     () => () => {
-      maps.dispose();
       gradient.dispose();
-      geometry.dispose();
-      skin.dispose();
+      materialCache.forEach((mat) => mat.dispose());
+      materialCache.clear();
     },
-    [maps, gradient, geometry, skin],
+    [gradient, materialCache],
   );
 
-  // Hand sits just past the wrist; palm crest kept a little below the forearm.
-  const handX = ARM_X1 + 0.55;
+  const showBodyGizmo =
+    pivot !== null &&
+    limbTarget === null &&
+    (tool === "translate" || tool === "rotate" || tool === "scale");
+
+  const showLimbGizmo = limbTarget !== null && tool === "rotate";
+
+  const handlePointerDown = (event: ThreeEvent<PointerEvent>) => {
+    pointerDownPos.current = { x: event.clientX, y: event.clientY };
+    if (tool === "contact" || tool === "orbit") return;
+    event.stopPropagation();
+    onPointerDown(event);
+  };
+
+  const handleClick = (event: ThreeEvent<MouseEvent>) => {
+    if (tool === "contact") {
+      const down = pointerDownPos.current;
+      if (down) {
+        const dx = event.clientX - down.x;
+        const dy = event.clientY - down.y;
+        if (dx * dx + dy * dy > 16) return;
+      }
+
+      const node = pivotRef.current;
+      if (!node) return;
+      node.updateWorldMatrix(true, true);
+
+      // The transparent proxy receives the R3F event. Raycast the actual
+      // anatomy meshes again to anchor the stimulus plane to the clicked skin.
+      const hit = raycaster
+        .intersectObject(model, true)
+        .find((candidate) => (candidate.object as Mesh).userData.videAnatomy);
+      if (!hit) return;
+
+      const localPosition = node.worldToLocal(hit.point.clone());
+      const worldNormal = hit.face
+        ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld)
+        : new Vector3(0, 1, 0);
+      const localNormal = worldNormal
+        .transformDirection(new Matrix4().copy(node.matrixWorld).invert())
+        .normalize();
+      localPosition.addScaledVector(localNormal, 0.012);
+
+      event.stopPropagation();
+      addContactPoint({
+        position: [localPosition.x, localPosition.y, localPosition.z],
+        normal: [localNormal.x, localNormal.y, localNormal.z],
+        surface: "body",
+      });
+      return;
+    }
+
+    if (tool !== "rotate") return;
+    event.stopPropagation();
+
+    const anatomyHit = event.intersections.find((hit) => {
+      const mesh = hit.object as Mesh;
+      return mesh.isMesh && mesh.userData.videAnatomy;
+    });
+    const target = (anatomyHit?.object ?? event.object) as Mesh;
+    const limb = limbFromIntersection(target);
+    if (limb && limb !== "torso") {
+      setSelectedAnatomyLimb(limb);
+    }
+  };
 
   return (
-    <group name="ArmModel" position={[0, -ARM_RADIUS, 0]}>
-      <DeformableForearm geometry={geometry} material={skin} />
+    <>
+      <group ref={pivotRef} name="AnatomyPivot">
+        <primitive object={model} />
+        <ActiveHeatSpot gradient={gradient} anchor={forearmOverlay} />
+        <BodyStimulusPlanes />
 
-      {/* Elbow cap so the tube is not hollow at the near end. */}
-      <mesh position={[ARM_X0, 0, 0]} material={skin}>
-        <sphereGeometry args={[ARM_RADIUS, 32, 24]} />
-      </mesh>
-
-      {/* Wrist + hand. */}
-      <mesh position={[ARM_X1 + 0.05, -0.12, 0]} material={skin} castShadow>
-        <sphereGeometry args={[ARM_RADIUS * 0.82, 28, 20]} />
-      </mesh>
-      <group position={[handX, -0.18, 0]}>
-        <RoundedBox args={[1.0, 0.55, 1.5]} radius={0.22} smoothness={4} castShadow>
-          <primitive object={skin} attach="material" />
-        </RoundedBox>
-        {/* Four fingers. */}
-        <Finger position={[0.95, 0.02, 0.52]} length={0.85} radius={0.15} rotation={[0, 0, -Math.PI / 2]} material={skin} />
-        <Finger position={[1.02, 0.02, 0.18]} length={0.95} radius={0.15} rotation={[0, 0, -Math.PI / 2]} material={skin} />
-        <Finger position={[1.0, 0.02, -0.16]} length={0.9} radius={0.15} rotation={[0, 0, -Math.PI / 2]} material={skin} />
-        <Finger position={[0.9, 0.02, -0.5]} length={0.72} radius={0.14} rotation={[0, 0, -Math.PI / 2]} material={skin} />
-        {/* Thumb. */}
-        <Finger position={[0.35, 0.0, 0.72]} length={0.55} radius={0.16} rotation={[Math.PI / 2.4, 0, -Math.PI / 3]} material={skin} />
+        {/* Invisible pick volume — GLTF child meshes don't receive R3F events reliably. */}
+        <mesh
+          name="AnatomyPickProxy"
+          position={pickCenter}
+          visible={false}
+          onPointerDown={handlePointerDown}
+          onPointerOver={onPointerOver}
+          onPointerOut={onPointerOut}
+          onClick={handleClick}
+        >
+          <boxGeometry args={[pickSize.x, pickSize.y, pickSize.z]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        </mesh>
       </group>
 
-      {showAnatomy && (
-        <group name="ArmAnatomy">
-          <mesh position={[0, -0.18, 0.42]} rotation={[0, 0, Math.PI / 2]} castShadow>
-            <capsuleGeometry args={[RADIUS_BONE, ARM_X1 - ARM_X0 + 1.2, 16, 28]} />
-            <meshStandardMaterial color="#efe7d2" roughness={0.55} metalness={0.02} />
-          </mesh>
-          <mesh position={[0, -0.18, -0.42]} rotation={[0, 0, Math.PI / 2]} castShadow>
-            <capsuleGeometry args={[ULNA_BONE, ARM_X1 - ARM_X0 + 1.2, 16, 28]} />
-            <meshStandardMaterial color="#efe7d2" roughness={0.55} metalness={0.02} />
-          </mesh>
-          {/* Hand bones. */}
-          {[0.52, 0.18, -0.16, -0.5].map((z, i) => (
-            <mesh
-              key={i}
-              position={[handX + 0.2, -0.18, z]}
-              rotation={[0, 0, Math.PI / 2]}
-              castShadow
-            >
-              <capsuleGeometry args={[0.07, 0.9, 8, 14]} />
-              <meshStandardMaterial color="#efe7d2" roughness={0.55} />
-            </mesh>
-          ))}
-        </group>
+      {showBodyGizmo && (
+        <TransformControls
+          object={pivot}
+          mode={tool}
+          size={1.1}
+          onMouseDown={() => {
+            setSelectedAnatomyLimb(null);
+          }}
+          onObjectChange={() => {
+            const node = pivotRef.current;
+            if (!node || suppressWrite.current) return;
+            setAnatomyTransform({
+              position: [node.position.x, node.position.y, node.position.z],
+              rotation: [node.rotation.x, node.rotation.y, node.rotation.z],
+              scale: [node.scale.x, node.scale.y, node.scale.z],
+            });
+          }}
+        />
       )}
 
-      {/* Data-driven responses on the crest (world y = 0). */}
-      <group position={[0, ARM_RADIUS, 0]}>
-        <ActiveHeatSpot gradient={gradient} />
-      </group>
-    </group>
+      {showLimbGizmo && limbTarget && (
+        <TransformControls
+          object={limbTarget}
+          mode="rotate"
+          size={0.85}
+          onObjectChange={() => {
+            if (!selectedAnatomyLimb) return;
+            setAnatomyLimbRotation(selectedAnatomyLimb, [
+              limbTarget.rotation.x,
+              limbTarget.rotation.y,
+              limbTarget.rotation.z,
+            ] as Vec3);
+          }}
+        />
+      )}
+    </>
   );
 }

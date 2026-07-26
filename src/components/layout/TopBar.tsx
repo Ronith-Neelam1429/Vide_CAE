@@ -125,8 +125,10 @@ export function TopBar() {
   const setTool = useExperimentStore((s) => s.setTool);
   const setSidebarTab = useExperimentStore((s) => s.setSidebarTab);
   const hasDesign = useExperimentStore((s) => s.design !== null);
+  const showBody = useExperimentStore((s) => s.showBody);
   const isImporting = useExperimentStore((s) => s.isImporting);
   const contactCount = useExperimentStore((s) => s.contactPoints.length);
+  const canTransform = hasDesign || showBody;
 
   const selectTool = (next: ToolMode) => () => {
     setTool(next);
@@ -156,9 +158,9 @@ export function TopBar() {
         <div className="top-bar__divider" />
         <div className="top-bar__tool-group">
           <ToolButton
-            label="Contact points"
+            label="Place stimulus plane"
             active={tool === "contact"}
-            disabled={!hasDesign}
+            disabled={!canTransform}
             onClick={selectTool("contact")}
           >
             <IconContact />
@@ -166,7 +168,7 @@ export function TopBar() {
           <ToolButton
             label="Move"
             active={tool === "translate"}
-            disabled={!hasDesign}
+            disabled={!canTransform}
             onClick={selectTool("translate")}
           >
             <IconMove />
@@ -174,7 +176,7 @@ export function TopBar() {
           <ToolButton
             label="Rotate"
             active={tool === "rotate"}
-            disabled={!hasDesign}
+            disabled={!canTransform}
             onClick={selectTool("rotate")}
           >
             <IconRotate />
@@ -182,7 +184,7 @@ export function TopBar() {
           <ToolButton
             label="Scale"
             active={tool === "scale"}
-            disabled={!hasDesign}
+            disabled={!canTransform}
             onClick={selectTool("scale")}
           >
             <IconScale />

@@ -23,16 +23,18 @@ function useToolHotkeys() {
 
       const store = useExperimentStore.getState();
       const hasDesign = store.design !== null;
+      const hasContactSurface = hasDesign || store.showBody;
+      const canTransform = hasDesign || store.showBody;
       const key = event.key.toLowerCase();
 
-      if (key === "c" && hasDesign) {
+      if (key === "c" && hasContactSurface) {
         store.setTool("contact");
         store.setSidebarTab("contacts");
-      } else if (key === "g" && hasDesign) {
+      } else if (key === "g" && canTransform) {
         store.setTool("translate");
-      } else if (key === "r" && hasDesign) {
+      } else if (key === "r" && canTransform) {
         store.setTool("rotate");
-      } else if (key === "s" && hasDesign && !event.metaKey && !event.ctrlKey) {
+      } else if (key === "s" && canTransform && !event.metaKey && !event.ctrlKey) {
         store.setTool("scale");
       } else if (key === "escape") {
         store.setTool("orbit");

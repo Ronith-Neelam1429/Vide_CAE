@@ -1,6 +1,7 @@
 import { Canvas } from "@react-three/fiber";
-import { Suspense, useEffect, useRef } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useExperimentStore } from "../../store/experimentStore";
+import { AnatomyAttributionPanel } from "./AnatomyAttributionPanel";
 import { Scene } from "./Scene";
 
 export function Viewport() {
@@ -9,7 +10,9 @@ export function Viewport() {
   const tool = useExperimentStore((s) => s.tool);
   const contactCount = useExperimentStore((s) => s.contactPoints.length);
   const showAnatomy = useExperimentStore((s) => s.showAnatomy);
+  const showBody = useExperimentStore((s) => s.showBody);
   const toggleAnatomy = useExperimentStore((s) => s.toggleAnatomy);
+  const [showAttribution, setShowAttribution] = useState(false);
 
   useEffect(() => {
     const el = paneRef.current;
@@ -46,16 +49,33 @@ export function Viewport() {
         <div className="viewport-overlay__coords">
           {design
             ? `${design.fileName}${contactCount ? ` · ${contactCount} CP` : ""}`
-            : "Forearm · skin over radius & ulna"}
+            : showBody
+              ? "Z-Anatomy full body · bones & muscles"
+              : "Empty scene · render human body from sidebar"}
         </div>
 
-        <button
-          type="button"
-          className={`viewport-toggle${showAnatomy ? " is-active" : ""}`}
-          onClick={toggleAnatomy}
-        >
-          {showAnatomy ? "Hide anatomy" : "Show anatomy"}
-        </button>
+        {showBody && (
+          <button
+            type="button"
+            className={`viewport-toggle${showAnatomy ? " is-active" : ""}`}
+            onClick={toggleAnatomy}
+          >
+            {showAnatomy ? "Hide anatomy" : "Show anatomy"}
+          </button>
+        )}
+        {showBody && (
+          <button
+            type="button"
+            className="viewport-toggle viewport-toggle--muted"
+            onClick={() => setShowAttribution((open) => !open)}
+          >
+            Anatomy credit
+          </button>
+        )}
+        <AnatomyAttributionPanel
+          open={showAttribution}
+          onClose={() => setShowAttribution(false)}
+        />
         <div className="viewport-overlay__hint">
           {design && tool === "contact" ? (
             <>
@@ -91,6 +111,30 @@ export function Viewport() {
             <>
               <span className="viewport-chip">
                 <strong>Gizmo</strong> scale
+              </span>
+            </>
+          ) : tool === "translate" ? (
+            <>
+              <span className="viewport-chip">
+                <strong>Drag body</strong> move
+              </span>
+              <span className="viewport-chip">
+                <strong>Gizmo</strong> precise move
+              </span>
+            </>
+          ) : tool === "rotate" ? (
+            <>
+              <span className="viewport-chip">
+                <strong>Drag body</strong> spin
+              </span>
+              <span className="viewport-chip">
+                <strong>Click limb</strong> pose joint
+              </span>
+            </>
+          ) : tool === "scale" ? (
+            <>
+              <span className="viewport-chip">
+                <strong>Gizmo</strong> scale body
               </span>
             </>
           ) : (

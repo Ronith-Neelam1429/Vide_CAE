@@ -25,8 +25,10 @@ type R3FPointerEvent = {
  * - rotate: drag sideways to spin around Y
  */
 type PlaneDragOptions = {
-  /** When false, drag mutates the object only (no experiment store writes). */
+  /** When false, drag mutates the object only (no store writes). */
   syncStore?: boolean;
+  /** Override the default design transform store sync. */
+  onTransform?: (partial: { position?: Vec3; rotation?: Vec3 }) => void;
 };
 
 export function usePlaneDrag(
@@ -35,6 +37,7 @@ export function usePlaneDrag(
   options: PlaneDragOptions = {},
 ) {
   const syncStore = options.syncStore !== false;
+  const onTransform = options.onTransform;
   const gl = useThree((s) => s.gl);
   const camera = useThree((s) => s.camera);
   const controls = useThree((s) => s.controls);
@@ -109,28 +112,32 @@ export function usePlaneDrag(
               node.position.y,
               hit.current.z + offset.current.z,
             );
-            if (syncStore) {
-              setTransform({
+            if (syncStore || onTransform) {
+              const partial = {
                 position: [
                   node.position.x,
                   node.position.y,
                   node.position.z,
                 ] as Vec3,
-              });
+              };
+              if (onTransform) onTransform(partial);
+              else setTransform(partial);
             }
           }
         } else {
           const dx = ev.clientX - lastX.current;
           lastX.current = ev.clientX;
           node.rotation.y += dx * 0.01;
-          if (syncStore) {
-            setTransform({
+          if (syncStore || onTransform) {
+            const partial = {
               rotation: [
                 node.rotation.x,
                 node.rotation.y,
                 node.rotation.z,
               ] as Vec3,
-            });
+            };
+            if (onTransform) onTransform(partial);
+            else setTransform(partial);
           }
         }
       };
@@ -144,7 +151,7 @@ export function usePlaneDrag(
       window.addEventListener("pointermove", onPointerMove);
       window.addEventListener("pointerup", onPointerUp);
     },
-    [mode, pivotRef, controls, gl, camera, setTransform, endDrag, syncStore],
+    [mode, pivotRef, controls, gl, camera, setTransform, endDrag, syncStore, onTransform],
   );
 
   return { onPointerDown, onPointerOver, onPointerOut };
