@@ -7,6 +7,7 @@
 //! data, and nothing it produces is clinical advice.
 
 pub mod contact;
+pub mod mechanics;
 pub mod model;
 pub mod solver;
 pub mod verification;
@@ -64,11 +65,11 @@ impl SimulationContact {
         self.parameters.get(key).copied().filter(|v| v.is_finite())
     }
 
-    fn number_or(&self, key: &str, fallback: f64) -> f64 {
+    pub(crate) fn number_or(&self, key: &str, fallback: f64) -> f64 {
         self.number(key).unwrap_or(fallback)
     }
 
-    fn text<'a>(&'a self, key: &str, fallback: &'a str) -> &'a str {
+    pub(crate) fn text<'a>(&'a self, key: &str, fallback: &'a str) -> &'a str {
         self.options
             .get(key)
             .map(String::as_str)
