@@ -11,6 +11,43 @@ npm install
 npm run tauri dev
 ```
 
+## Getting an experiment on screen fast
+
+You can start without any CAD file. The Design tab ships **arm-worn presets** —
+a **wristband / smartwatch cuff**, an open **bracelet**, and a **compression
+sleeve** — each generated as geometry and dropped straight onto the skin patch
+(the "arm"). Pick one, mark where it presses the skin, assign a heat stimulus,
+and run. Importing an STL/OBJ works exactly the same way afterwards.
+
+## Tissue library
+
+Skin is the first tissue, but the layered solver is generic, so Vide now ships
+several organic tissues you can select as the "Skin site" for any contact:
+
+| Tissue | What it models |
+| --- | --- |
+| Volar forearm / Palm / Fingertip / Upper back / Abdomen | Skin sites with site-specific layer thicknesses and perfusion |
+| Bone (subcutaneous, shin) | Thin skin over cortical bone, trabecular bone and marrow |
+| Scalp with hair | Insulating keratin-and-air canopy over vascular scalp, galea and skull |
+| Articular cartilage | Avascular hyaline cartilage over subchondral bone |
+| Cell membrane / monolayer (in vitro) | Bulk-thermal analogue of a cultured construct in medium |
+
+Every tissue reports its own depth markers (for example *skin–bone interface*
+and *cortical bone base* instead of *basal layer*), so a reported temperature is
+never silently interpreted as skin anatomy. Property values are representative
+literature figures with their sources attached, and remain *Unreviewed* in-app
+until checked against the primary reference — the in-vitro cell profile in
+particular is a bulk-thermal analogue and its burn/Ω interpretation is not
+physically meaningful at cellular scale.
+
+Additional tissue-property references beyond the skin sources:
+
+- Biyikli S, Modest MF, Tarr R (1986). *Measurements of thermal properties for
+  human femora.* J Biomed Mater Res 20(9):1335-1345.
+- Hasgall PA et al. *IT'IS Database for thermal and electromagnetic parameters
+  of biological tissues.*
+- Duck FA (1990). *Physical Properties of Tissue.* Academic Press.
+
 ## What the heat model does
 
 The solver computes the one-dimensional Pennes bioheat equation through a
