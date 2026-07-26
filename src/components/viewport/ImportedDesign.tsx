@@ -2,6 +2,7 @@ import { TransformControls } from "@react-three/drei";
 import { useThree, type ThreeEvent } from "@react-three/fiber";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  DoubleSide,
   Group,
   Matrix4,
   MeshStandardMaterial,
@@ -14,10 +15,13 @@ import { useExperimentStore, type Vec3 } from "../../store/experimentStore";
 import { ContactMarkers } from "./ContactMarkers";
 import { usePlaneDrag, type PlaneDragMode } from "./usePlaneDrag";
 
+// DoubleSide keeps thin-walled parts (imported shells and the built-in band
+// presets) visible regardless of triangle winding.
 const designMaterial = new MeshStandardMaterial({
   color: "#7d8894",
   metalness: 0.28,
   roughness: 0.42,
+  side: DoubleSide,
 });
 
 function dragModeForTool(
