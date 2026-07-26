@@ -48,6 +48,28 @@ Additional tissue-property references beyond the skin sources:
   of biological tissues.*
 - Duck FA (1990). *Physical Properties of Tissue.* Academic Press.
 
+## The 3D forearm and animated response
+
+The workspace is a realistic forearm — skin over subcutaneous fat, muscle and
+the radius and ulna — not a flat plane. Toggle **Show anatomy** to make the skin
+translucent and reveal the internal layers and bone. Contacts are still placed
+and posed against the crest of the arm, so the proven placement workflow is
+unchanged.
+
+After a run, the **Results** panel shows a playback timeline. Scrub or play it to
+watch the *actual solver output* animate on the arm: a heat contact drives a
+hot-spot that reddens and cools with the real surface-temperature series; a
+mechanical contact presses an indenter into the arm and recovers. The animation
+is a view of the simulation data, never a canned effect.
+
+## Stimuli
+
+| Stimulus | Status | What it models |
+| --- | --- | --- |
+| Heat | Implemented | Layered Pennes bioheat + Arrhenius damage (see below) |
+| Pressure / mechanical load | Implemented | Layered viscoelastic compression, permanent set, and cortical-bone cyclic fatigue (see below) |
+| Cold, Electrical | Not implemented | Deliberately gated until their response models are built and checked |
+
 ## What the heat model does
 
 The solver computes the one-dimensional Pennes bioheat equation through a
@@ -130,6 +152,50 @@ Each run additionally reports:
 cd src-tauri && cargo test
 ```
 
+## What the mechanical model does
+
+The pressure stimulus runs a one-dimensional layered mechanical solver that
+mirrors the thermal stack. Under a normal contact pressure the same stress is
+carried through the depth (series equilibrium), decaying with depth by the
+Boussinesq solution for a circular contact, and each layer responds as a linear
+Kelvin–Voigt viscoelastic solid:
+
+```
+σ(z) = p · [1 − z³ / (a² + z²)^{3/2}]      (Boussinesq axial decay)
+ε(t) = (σ/E)(1 − e^{−t/τ})                  (Kelvin–Voigt creep)
+```
+
+From this it reports indentation over time (creep during the hold, recovery
+after release), per-layer strain and stress, and permanent set once a layer
+exceeds its yield strain. A structural (bone) layer shields the softer tissue
+behind it, which is why deep marrow does not spuriously compress.
+
+For **cyclic** loading on bone it evaluates fatigue with a Basquin S–N law and
+Palmgren–Miner damage:
+
+```
+Nf = (σf' / σa)^m        D = N / Nf
+```
+
+calibrated to the cortical-bone fatigue literature (σa ≈ 60 MPa → ~10³ cycles),
+and reports cycles-to-failure, accumulated damage, residual stiffness and the
+permanent shape change accumulating with cycles.
+
+References: Agache et al. (1980) for skin elasticity; Reilly & Burstein (1975)
+for cortical bone modulus; Carter & Caler (1981/1985) and Pattin et al. (1996)
+for bone fatigue. Verified for internal consistency (series compliance, creep
+asymptote, S–N calibration, Miner damage); **not** validated against
+experimental deformation datasets.
+
+## Where this is going
+
+The core is a general **contact → stimulus → tissue-response** engine. Skin is
+the first validated material; bone, cartilage and in-vitro constructs are
+additional modules on the same framework, and heat and mechanical load are the
+first two stimulus modules. New tissues and stimuli slot in without
+re-architecting the contact workflow, which is the basis for growing this into a
+computational testing layer between designing something and building it.
+
 ## What it is not
 
 **This is a research prototype, not a validated safety or clinical model, and
@@ -162,8 +228,10 @@ Specific gaps to close before describing any result as accurate:
 5. **Geometry is one-dimensional.** Small contact patches spread heat sideways
    and the model flags this, but it cannot resolve it. An axisymmetric or 3D
    solver is required for small tips and edges.
-6. **Only heat is implemented.** Cold, electrical and pressure stimuli are
-   deliberately absent until the heat path is validated.
+6. **Heat and mechanical load are implemented; cold and electrical are not.**
+   The mechanical model is verified for internal consistency but, like the heat
+   path, is not yet validated against experimental data. Cold and electrical
+   stimuli remain deliberately absent until their models are built and checked.
 
 ## Provenance
 
