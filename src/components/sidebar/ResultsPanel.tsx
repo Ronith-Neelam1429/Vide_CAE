@@ -737,6 +737,9 @@ export function ResultsPanel() {
   const contacts = useExperimentStore((s) => s.contactPoints);
   const solverPreset = useExperimentStore((s) => s.solverPreset);
   const setSolverPreset = useExperimentStore((s) => s.setSolverPreset);
+  const openValidationDashboard = useExperimentStore((s) => s.openValidationDashboard);
+  const runValidationSuite = useExperimentStore((s) => s.runValidationSuite);
+  const validationStatus = useExperimentStore((s) => s.validationStatus);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const hasThermal = !!result && result.contacts.length > 0;
@@ -877,6 +880,51 @@ export function ResultsPanel() {
 
       {hasThermal && view === "thermal" && result && (
         <>
+          {selected && (
+            <div className={`results-run-summary is-${riskTone(selected.summary)}`}>
+              <div className="results-run-summary__title">
+                Your contact run · {selected.label}
+              </div>
+              <dl className="results-run-summary__grid">
+                <div>
+                  <dt>Device</dt>
+                  <dd>{selected.inputs.deviceSetpointC.toFixed(1)} °C</dd>
+                </div>
+                <div>
+                  <dt>Peak skin</dt>
+                  <dd>{selected.summary.peakSurfaceTemperatureC.toFixed(1)} °C</dd>
+                </div>
+                <div>
+                  <dt>Peak basal</dt>
+                  <dd>{selected.summary.peakBasalTemperatureC.toFixed(1)} °C</dd>
+                </div>
+                <div>
+                  <dt>Time to 44 °C</dt>
+                  <dd>{formatSeconds(selected.summary.timeTo44cS)}</dd>
+                </div>
+                <div>
+                  <dt>Injury risk</dt>
+                  <dd>
+                    {riskTone(selected.summary) === "bad"
+                      ? "High"
+                      : riskTone(selected.summary) === "warn"
+                        ? "Elevated"
+                        : "Low"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Energy</dt>
+                  <dd>{selected.summary.totalEnergyDeliveredJ.toFixed(2)} J</dd>
+                </div>
+              </dl>
+              <p className="results-run-summary__note">
+                The chart below is <strong>this contact’s simulated temperature</strong> over
+                time — surface (blue), shallow tissue (orange), deeper tissue (green). Full
+                readout is also in the bottom Simulation output panel.
+              </p>
+            </div>
+          )}
+
           {thermalDuration > 0 && (
             <PlaybackTimeline durationS={thermalDuration} label="Skin temperature over time" />
           )}
@@ -894,27 +942,35 @@ export function ResultsPanel() {
               className="results-panel__export"
               onClick={() => exportTimeSeriesCsv(result)}
             >
-              Time series CSV
+              Export time series
             </button>
             <button
               type="button"
               className="results-panel__export"
               onClick={() => exportDepthProfileCsv(result)}
             >
-              Depth CSV
+              Export depth
             </button>
             <button
               type="button"
               className="results-panel__export"
               onClick={() => exportRunManifest(result)}
             >
-              Manifest JSON
+              Export manifest
             </button>
-          </div>
-
-          <div className="results-panel__notice">
-            <strong>Research prototype</strong>
-            <span>{result.model.validationStatus}</span>
+            <button
+              type="button"
+              className="results-panel__export"
+              disabled={validationStatus === "running"}
+              onClick={() => {
+                openValidationDashboard();
+                if (validationStatus === "idle") {
+                  void runValidationSuite({ includeSyntheticFixtures: false });
+                }
+              }}
+            >
+              Compare to papers (optional)
+            </button>
           </div>
 
           <VerificationStrip suite={result.manifest.verification} />

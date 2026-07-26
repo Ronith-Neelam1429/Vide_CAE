@@ -1,4 +1,6 @@
 import { useState } from "react";
+import type { ProtocolSuggestion } from "../../lib/assist";
+import { listLiteratureCases } from "../../lib/literatureCases";
 import type { ModelCatalog } from "../../lib/simulation";
 import {
   BUILTIN_STIMULI,
@@ -190,8 +192,16 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
   const setStimulusParameter = useExperimentStore((s) => s.setStimulusParameter);
   const setStimulusOption = useExperimentStore((s) => s.setStimulusOption);
   const applyPreset = useExperimentStore((s) => s.applyPreset);
+  const applyLiteratureCase = useExperimentStore((s) => s.applyLiteratureCase);
+  const applyProtocolSuggestion = useExperimentStore((s) => s.applyProtocolSuggestion);
+  const suggestProtocolFromText = useExperimentStore((s) => s.suggestProtocolFromText);
+  const assistStatus = useExperimentStore((s) => s.assistStatus);
   const copyStimulusToAll = useExperimentStore((s) => s.copyStimulusToAll);
 
+  const [protocolQuery, setProtocolQuery] = useState("");
+  const [protocolSuggestion, setProtocolSuggestion] =
+    useState<ProtocolSuggestion | null>(null);
+  const [protocolSearching, setProtocolSearching] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     essential: true,
     contact: true,
@@ -233,29 +243,13 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
     );
   };
 
+  const literatureCases = listLiteratureCases();
+  const activeLiteratureCase = assignment.literatureCaseId
+    ? literatureCases.find((entry) => entry.id === assignment.literatureCaseId)
+    : undefined;
+
   return (
     <div className="stimulus-form">
-      <label className="stimulus-form__field">
-        <span className="stimulus-form__label">Start from a scenario</span>
-        <select
-          className="stimulus-form__select"
-          value=""
-          onChange={(event) => {
-            if (event.target.value) applyPreset(contactPointId, event.target.value);
-          }}
-        >
-          <option value="">Choose a preset…</option>
-          {STIMULUS_PRESETS.map((preset) => (
-            <option key={preset.id} value={preset.id}>
-              {preset.label}
-            </option>
-          ))}
-        </select>
-        <span className="stimulus-form__help">
-          Fills every field below with a consistent set of conditions you can then adjust.
-        </span>
-      </label>
-
       <label className="stimulus-form__field">
         <span className="stimulus-form__label">Stimulus type</span>
         <select
@@ -269,6 +263,24 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
             <option key={stimulus.type} value={stimulus.type}>
               {stimulus.label}
               {stimulus.implemented ? "" : " (not implemented)"}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="stimulus-form__field">
+        <span className="stimulus-form__label">Quick fill</span>
+        <select
+          className="stimulus-form__select"
+          value=""
+          onChange={(event) => {
+            if (event.target.value) applyPreset(contactPointId, event.target.value);
+          }}
+        >
+          <option value="">Preset scenario…</option>
+          {STIMULUS_PRESETS.map((preset) => (
+            <option key={preset.id} value={preset.id}>
+              {preset.label}
             </option>
           ))}
         </select>
@@ -305,6 +317,77 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
           </section>
         );
       })}
+
+      <details className="stimulus-form__advanced">
+        <summary>
+          Match a published study
+          {assistStatus?.configured ? " · Azure ready" : ""}
+          {activeLiteratureCase ? ` · ${activeLiteratureCase.label}` : ""}
+        </summary>
+        <select
+          className="stimulus-form__select"
+          value={assignment.literatureCaseId ?? ""}
+          onChange={(event) => {
+            if (event.target.value) {
+              applyLiteratureCase(contactPointId, event.target.value);
+            }
+          }}
+        >
+          <option value="">Published case…</option>
+          {literatureCases.map((entry) => (
+            <option key={entry.id} value={entry.id}>
+              {entry.label}
+            </option>
+          ))}
+        </select>
+        <input
+          className="stimulus-form__input"
+          type="text"
+          placeholder="Describe protocol, then press Enter"
+          value={protocolQuery}
+          onChange={(event) => setProtocolQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" || protocolSearching) return;
+            event.preventDefault();
+            void (async () => {
+              setProtocolSearching(true);
+              try {
+                const suggestion = await suggestProtocolFromText(
+                  contactPointId,
+                  protocolQuery,
+                );
+                setProtocolSuggestion(suggestion);
+              } finally {
+                setProtocolSearching(false);
+              }
+            })();
+          }}
+        />
+        {protocolSuggestion && (
+          <div className="stimulus-form__literature-suggestion">
+            <strong>{protocolSuggestion.label}</strong>
+            <span>
+              {protocolSuggestion.confidence} · {protocolSuggestion.source}
+            </span>
+            {protocolSuggestion.confidence !== "high" && (
+              <button
+                type="button"
+                className="sidebar__btn sidebar__btn--compact"
+                onClick={() => {
+                  applyProtocolSuggestion(contactPointId, protocolSuggestion);
+                  setProtocolSuggestion(null);
+                }}
+              >
+                Apply
+              </button>
+            )}
+          </div>
+        )}
+        <p className="stimulus-form__help">
+          Optional. Fills temperature, duration, and area from a known paper.
+          Your run still uses the contact you placed — this is not the Results graph.
+        </p>
+      </details>
 
       {contactCount > 1 && (
         <button

@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import { Sidebar } from "./components/layout/Sidebar";
-import { StatusBar } from "./components/layout/StatusBar";
+import { SimulationTerminal } from "./components/layout/SimulationTerminal";
 import { TopBar } from "./components/layout/TopBar";
+import { ValidationDashboard } from "./components/validation/ValidationDashboard";
 import { Viewport } from "./components/viewport/Viewport";
 import { useExperimentStore } from "./store/experimentStore";
 import "./styles/theme.css";
@@ -55,12 +56,14 @@ function App() {
   useToolHotkeys();
   const sidebarTab = useExperimentStore((state) => state.sidebarTab);
   const loadCatalog = useExperimentStore((state) => state.loadCatalog);
+  const loadAssistStatus = useExperimentStore((state) => state.loadAssistStatus);
 
   // Pull the tissue and material tables from the solver once at startup so the
   // pickers offer exactly what the backend supports.
   useEffect(() => {
     void loadCatalog();
-  }, [loadCatalog]);
+    void loadAssistStatus();
+  }, [loadCatalog, loadAssistStatus]);
 
   return (
     <div className={`app-shell${sidebarTab === "results" ? " app-shell--results" : ""}`}>
@@ -69,7 +72,8 @@ function App() {
         <Sidebar />
         <Viewport />
       </div>
-      <StatusBar />
+      <SimulationTerminal />
+      <ValidationDashboard />
     </div>
   );
 }

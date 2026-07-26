@@ -91,8 +91,8 @@ export function ContactsPanel() {
       </div>
 
       <p className="contacts-panel__help">
-        With the body rendered, click its surface to anchor a stimulus plane.
-        With a design selected, clicking marks its skin-contact point.
+        1) Click the body to place a plane · 2) Set temperature & duration · 3) Run
+        simulation. Results and the bottom terminal show what happened to the skin.
       </p>
 
       <div className="sidebar__section-label" style={{ paddingLeft: 0 }}>

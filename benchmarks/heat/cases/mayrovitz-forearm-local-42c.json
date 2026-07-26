@@ -1,0 +1,49 @@
+{
+  "id": "mayrovitz-forearm-local-42c",
+  "split": "holdout",
+  "title": "Mayrovitz forearm local heater 42 °C",
+  "citation": "Mayrovitz et al. (2020). Effects of local forearm skin heating on skin properties. Clinical Physiology and Functional Imaging. Protocol summary used; raw T(t) series not openly redistributed here.",
+  "dataDoi": null,
+  "licence": "Protocol description only; measured series not bundled",
+  "availability": "awaiting_contact_site_series",
+  "availabilityNote": "Hold-out protocol reserved from a second paper. No open raw contact-site temperature–time CSV was located during the 2026-07-26 source audit. This case must not be fitted.",
+  "synthetic": false,
+  "site": "volar-forearm",
+  "cohort": "Young adults in the published heated cohort (n=30); individual raw series not available here",
+  "probeLocation": "Volar forearm under a 20 mm aluminium local heater with central laser-Doppler aperture",
+  "thermode": {
+    "label": "Aluminium local heater",
+    "diameterMm": 20,
+    "areaMm2": 314.159
+  },
+  "measurementTarget": "skin_surface",
+  "samplingIntervalS": 1,
+  "protocol": {
+    "stimulusType": "heat",
+    "parameters": {
+      "temperatureC": 42,
+      "durationS": 720,
+      "postExposureS": 60,
+      "contactAreaMm2": 314.159,
+      "interfaceThicknessUm": 20,
+      "contactPressureKpa": 3,
+      "ambientTemperatureC": 22,
+      "baselineSkinTemperatureC": 35,
+      "deviceThicknessMm": 2
+    },
+    "options": {
+      "skinProfileId": "volar-forearm",
+      "interfaceMaterialId": "dry-contact",
+      "deviceMaterialId": "aluminium-6061",
+      "deviceControl": "ideal",
+      "damageModelId": "henriques-1947"
+    }
+  },
+  "calibratableParameters": [],
+  "measuredSeriesPath": null,
+  "unknowns": [
+    "Raw contact-site skin temperature time series not openly available",
+    "Exact interface film thickness not reported",
+    "Contact pressure not quantified in the source summary used here"
+  ]
+}

@@ -1,4 +1,11 @@
+mod assist;
 mod simulation;
+
+use assist::{
+    assist_config_status, extract_protocol_from_text, suggest_protocol_from_text,
+    AssistConfigStatus, ExtractProtocolRequest, ExtractProtocolResponse, SuggestProtocolRequest,
+    ProtocolSuggestion,
+};
 
 use simulation::model::{
     DamageModel, DeviceMaterial, InterfaceMaterial, SkinProfile, DAMAGE_MODELS, DEVICE_MATERIALS,
@@ -6,7 +13,10 @@ use simulation::model::{
 };
 use simulation::mechanics::{run_mechanics_simulation, MechanicsResponse};
 use simulation::verification::VerificationSuite;
-use simulation::{run_heat_simulation, SimulationRequest, SimulationResponse};
+use simulation::{
+    run_heat_simulation, run_validation_suite, SimulationRequest, SimulationResponse,
+    ValidationRequest, ValidationSuiteReport,
+};
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -29,6 +39,35 @@ fn run_mechanics(request: SimulationRequest) -> Result<MechanicsResponse, String
 #[tauri::command]
 fn verify_solver() -> VerificationSuite {
     simulation::run_verification()
+}
+
+/// Experimental heat-validation suite: locked protocols, optional calibration,
+/// hold-out comparison. Never returns an experimental pass/fail badge.
+#[tauri::command]
+fn run_validation(request: ValidationRequest) -> Result<ValidationSuiteReport, String> {
+    run_validation_suite(request)
+}
+
+/// Whether Azure Foundry / OpenAI assist is configured (never returns secrets).
+#[tauri::command]
+fn assist_status() -> AssistConfigStatus {
+    assist_config_status()
+}
+
+/// Map natural language to a structured literature-aligned protocol suggestion.
+#[tauri::command]
+async fn assist_suggest_protocol(
+    request: SuggestProtocolRequest,
+) -> Result<Option<ProtocolSuggestion>, String> {
+    suggest_protocol_from_text(request).await
+}
+
+/// Extract a draft validation manifest from paper or methods text (Azure required).
+#[tauri::command]
+async fn assist_extract_protocol(
+    request: ExtractProtocolRequest,
+) -> Result<ExtractProtocolResponse, String> {
+    extract_protocol_from_text(request).await
 }
 
 /// The tissue profiles, materials and damage kinetics the UI offers, served
@@ -54,6 +93,8 @@ fn model_catalog() -> ModelCatalog {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let _ = dotenvy::dotenv();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
@@ -63,6 +104,10 @@ pub fn run() {
             run_simulation,
             run_mechanics,
             verify_solver,
+            run_validation,
+            assist_status,
+            assist_suggest_protocol,
+            assist_extract_protocol,
             model_catalog
         ])
         .run(tauri::generate_context!())

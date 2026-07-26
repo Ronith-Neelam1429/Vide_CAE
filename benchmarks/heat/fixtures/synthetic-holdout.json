@@ -1,0 +1,45 @@
+{
+  "id": "synthetic-forearm-holdout",
+  "split": "holdout",
+  "title": "Synthetic forearm hold-out fixture",
+  "citation": "Synthetic fixture for unit tests only. Not a published experiment.",
+  "dataDoi": null,
+  "licence": "Generated in-repo for testing",
+  "availability": "ready",
+  "availabilityNote": "Synthetic measured series for hold-out comparison unit tests. Must never be fitted and never presented as experimental validation.",
+  "synthetic": true,
+  "site": "volar-forearm",
+  "cohort": "synthetic",
+  "probeLocation": "synthetic contact patch",
+  "thermode": {
+    "label": "Synthetic disc",
+    "diameterMm": 20,
+    "areaMm2": 314.159
+  },
+  "measurementTarget": "skin_surface",
+  "samplingIntervalS": 0.5,
+  "protocol": {
+    "stimulusType": "heat",
+    "parameters": {
+      "temperatureC": 42,
+      "durationS": 15,
+      "postExposureS": 15,
+      "contactAreaMm2": 314.159,
+      "interfaceThicknessUm": 20,
+      "contactPressureKpa": 3,
+      "ambientTemperatureC": 22,
+      "baselineSkinTemperatureC": 34,
+      "deviceThicknessMm": 2
+    },
+    "options": {
+      "skinProfileId": "volar-forearm",
+      "interfaceMaterialId": "dry-contact",
+      "deviceMaterialId": "aluminium-6061",
+      "deviceControl": "ideal",
+      "damageModelId": "henriques-1947"
+    }
+  },
+  "calibratableParameters": [],
+  "measuredSeriesPath": "synthetic-holdout.csv",
+  "unknowns": []
+}

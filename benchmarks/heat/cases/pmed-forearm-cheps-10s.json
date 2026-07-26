@@ -1,0 +1,49 @@
+{
+  "id": "pmed-forearm-cheps-10s",
+  "split": "calibration",
+  "title": "PMED forearm CHEPS 10 s hold",
+  "citation": "Gouverneur et al. (2024). An Experimental and Clinical Physiological Signal Dataset for Automated Pain Recognition. Scientific Data. https://doi.org/10.1038/s41597-024-03878-w",
+  "dataDoi": "https://doi.org/10.6084/m9.figshare.26965159",
+  "licence": "Article CC BY 4.0; dataset subject to academic research data-use agreement",
+  "availability": "awaiting_contact_site_series",
+  "availabilityNote": "PMED publishes thermode temperature and wrist Empatica E4 skin temperature. E4 is off the heated site, so like-for-like skin_surface validation is unavailable. Do not compare wrist temperature to simulated contact-site surface temperature.",
+  "synthetic": false,
+  "site": "volar-forearm",
+  "cohort": "55 healthy adults (PMED); subject-level raw streams not redistributed here",
+  "probeLocation": "Non-dominant forearm, ~10 cm distal to elbow, CHEPS thermode with Velcro strap",
+  "thermode": {
+    "label": "Medoc Pathway CHEPS",
+    "diameterMm": 27,
+    "areaMm2": 572.555
+  },
+  "measurementTarget": "skin_surface",
+  "samplingIntervalS": 0.004,
+  "protocol": {
+    "stimulusType": "heat",
+    "parameters": {
+      "temperatureC": 45,
+      "durationS": 10,
+      "postExposureS": 20,
+      "contactAreaMm2": 572.555,
+      "interfaceThicknessUm": 20,
+      "contactPressureKpa": 5,
+      "ambientTemperatureC": 22,
+      "baselineSkinTemperatureC": 32,
+      "deviceThicknessMm": 2
+    },
+    "options": {
+      "skinProfileId": "volar-forearm",
+      "interfaceMaterialId": "dry-contact",
+      "deviceMaterialId": "aluminium-6061",
+      "deviceControl": "ideal",
+      "damageModelId": "henriques-1947"
+    }
+  },
+  "calibratableParameters": ["contactConductanceWM2K"],
+  "measuredSeriesPath": null,
+  "unknowns": [
+    "Exact strap contact pressure not reported",
+    "Contact-site skin temperature under the thermode not published",
+    "Subject-specific baseline skin temperature at the heated site not tabulated for redistribution"
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "id": "synthetic-forearm-calibration",
+  "split": "calibration",
+  "title": "Synthetic forearm calibration fixture",
+  "citation": "Synthetic fixture for unit tests only. Not a published experiment.",
+  "dataDoi": null,
+  "licence": "Generated in-repo for testing",
+  "availability": "ready",
+  "availabilityNote": "Synthetic measured series for alignment/metrics/calibration unit tests. Must never be presented as experimental validation.",
+  "synthetic": true,
+  "site": "volar-forearm",
+  "cohort": "synthetic",
+  "probeLocation": "synthetic contact patch",
+  "thermode": {
+    "label": "Synthetic disc",
+    "diameterMm": 22.56,
+    "areaMm2": 400
+  },
+  "measurementTarget": "skin_surface",
+  "samplingIntervalS": 0.5,
+  "protocol": {
+    "stimulusType": "heat",
+    "parameters": {
+      "temperatureC": 44,
+      "durationS": 10,
+      "postExposureS": 20,
+      "contactAreaMm2": 400,
+      "interfaceThicknessUm": 20,
+      "contactPressureKpa": 5,
+      "ambientTemperatureC": 22,
+      "baselineSkinTemperatureC": 33,
+      "deviceThicknessMm": 2,
+      "contactConductanceWM2K": 250
+    },
+    "options": {
+      "skinProfileId": "volar-forearm",
+      "interfaceMaterialId": "dry-contact",
+      "deviceMaterialId": "aluminium-6061",
+      "deviceControl": "ideal",
+      "damageModelId": "henriques-1947"
+    }
+  },
+  "calibratableParameters": ["contactConductanceWM2K"],
+  "measuredSeriesPath": "synthetic-calibration.csv",
+  "unknowns": []
+}

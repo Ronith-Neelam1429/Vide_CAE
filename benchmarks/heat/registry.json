@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "scope": "human forearm contact heating",
+  "evidenceRule": "raw tabular contact-site series only; no figure digitization",
+  "cases": [
+    {
+      "id": "pmed-forearm-cheps-10s",
+      "split": "calibration",
+      "availability": "awaiting_contact_site_series",
+      "manifestPath": "cases/pmed-forearm-cheps-10s.json",
+      "citation": "Gouverneur et al. 2024 Scientific Data",
+      "doi": "10.1038/s41597-024-03878-w"
+    },
+    {
+      "id": "mayrovitz-forearm-local-42c",
+      "split": "holdout",
+      "availability": "awaiting_contact_site_series",
+      "manifestPath": "cases/mayrovitz-forearm-local-42c.json",
+      "citation": "Mayrovitz et al. 2020",
+      "doi": null
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "synthetic-forearm-calibration",
+      "purpose": "unit_tests_only",
+      "manifestPath": "fixtures/synthetic-calibration.json"
+    },
+    {
+      "id": "synthetic-forearm-holdout",
+      "purpose": "unit_tests_only",
+      "manifestPath": "fixtures/synthetic-holdout.json"
+    }
+  ]
+}

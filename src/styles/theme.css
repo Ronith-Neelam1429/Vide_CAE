@@ -25,7 +25,8 @@
   --vide-success: #3fb950;
 
   --vide-topbar-height: 44px;
-  --vide-statusbar-height: 24px;
+  --vide-statusbar-height: 28px;
+  --vide-terminal-height: 210px;
   --vide-sidebar-width: 280px;
 
   --vide-font-ui: "IBM Plex Sans", "Segoe UI", sans-serif;

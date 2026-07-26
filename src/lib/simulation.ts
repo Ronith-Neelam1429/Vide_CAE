@@ -399,3 +399,97 @@ export async function fetchModelCatalog(): Promise<ModelCatalog> {
 export async function verifySolver(): Promise<VerificationSuite> {
   return invoke<VerificationSuite>("verify_solver");
 }
+
+export type ValidationSplit = "calibration" | "holdout";
+export type MeasurementTarget = "skin_surface" | "thermode_interface";
+export type CaseAvailability =
+  | "ready"
+  | "awaiting_contact_site_series"
+  | "protocol_only";
+
+export type MeasuredSample = {
+  timeS: number;
+  temperatureC: number;
+};
+
+export type ComparisonPoint = {
+  timeS: number;
+  measuredC: number;
+  predictedC: number;
+  residualC: number;
+};
+
+export type ComparisonMetrics = {
+  sampleCount: number;
+  timeAlignment: string;
+  rmseC: number | null;
+  maeC: number | null;
+  signedBiasC: number | null;
+  peakTemperatureErrorC: number | null;
+  timeToPeakErrorS: number | null;
+  unavailableReason: string | null;
+};
+
+export type LockedParameter = {
+  key: string;
+  value: number;
+  unit: string;
+  source: string;
+};
+
+export type ValidationCaseResult = {
+  caseId: string;
+  title: string;
+  split: ValidationSplit;
+  synthetic: boolean;
+  availability: CaseAvailability;
+  availabilityNote: string;
+  citation: string;
+  measurementTarget: MeasurementTarget;
+  protocolComplete: boolean;
+  measuredSeriesChecksum: string | null;
+  lockedParameters: LockedParameter[];
+  predictedSeries: ThermalSample[];
+  measuredSeries: MeasuredSample[];
+  comparison: ComparisonPoint[];
+  metrics: ComparisonMetrics;
+  caveats: string[];
+  peakPredictedSurfaceC: number;
+  peakMeasuredC: number | null;
+};
+
+export type ValidationSuiteReport = {
+  modelVersion: string;
+  generatedAtUnixMs: number;
+  includeSyntheticFixtures: boolean;
+  calibrated: boolean;
+  lockedParameters: LockedParameter[];
+  cases: ValidationCaseResult[];
+  disclosure: string;
+  sourceAudit: string;
+};
+
+export type ValidationRequest = {
+  includeSyntheticFixtures?: boolean;
+  allowCalibration?: boolean;
+  settings?: SolverSettings;
+};
+
+export async function runValidation(
+  request: ValidationRequest = {},
+): Promise<ValidationSuiteReport> {
+  return invoke<ValidationSuiteReport>("run_validation", {
+    request: {
+      includeSyntheticFixtures: request.includeSyntheticFixtures ?? false,
+      allowCalibration: request.allowCalibration ?? true,
+      settings: request.settings ?? {
+        surfaceCellUm: 5,
+        maxCellUm: 400,
+        growthRatio: 1.12,
+        timeStepMs: 20,
+        runConvergenceCheck: false,
+        runSensitivity: false,
+      },
+    },
+  });
+}

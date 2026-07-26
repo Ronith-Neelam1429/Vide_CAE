@@ -4,14 +4,23 @@ import type { AnatomyLimbId, AnatomyLimbRotations } from "../lib/anatomyLimbs";
 import {
   fetchModelCatalog,
   runSimulation,
+  runValidation,
   verifySolver,
   SOLVER_PRESETS,
   type ModelCatalog,
   type SimulationResult,
   type SolverPresetId,
+  type ValidationSuiteReport,
   type VerificationSuite,
 } from "../lib/simulation";
 import { runMechanics, type MechanicsResult } from "../lib/mechanics";
+import { literatureCaseById } from "../lib/literatureCases";
+import {
+  fetchAssistStatus,
+  suggestProtocolWithAssist,
+  type AssistConfigStatus,
+  type ProtocolSuggestion,
+} from "../lib/assist";
 import {
   defaultOptionsFor,
   defaultParametersFor,
@@ -49,6 +58,8 @@ export type StimulusAssignment = {
   stimulusType: StimulusType;
   parameters: StimulusParameters;
   options: StimulusOptions;
+  /** Locked literature benchmark when applied from the protocol assistant. */
+  literatureCaseId?: string | null;
 };
 
 export type ExperimentDefinition = {
@@ -79,6 +90,11 @@ type ExperimentState = {
   catalog: ModelCatalog | null;
   verification: VerificationSuite | null;
   verificationStatus: "idle" | "running" | "complete" | "error";
+  validationResult: ValidationSuiteReport | null;
+  validationStatus: "idle" | "running" | "complete" | "error";
+  validationError: string | null;
+  showValidationDashboard: boolean;
+  assistStatus: AssistConfigStatus | null;
   isImporting: boolean;
   importError: string | null;
   /** Reveal the internal tissue layers and bone of the forearm model. */
@@ -143,11 +159,29 @@ type ExperimentState = {
   ) => void;
   /** Fill every field of one contact from a named scenario. */
   applyPreset: (contactPointId: string, presetId: string) => void;
+  /** Apply a curated literature protocol (calibration or hold-out case). */
+  applyLiteratureCase: (contactPointId: string, caseId: string) => void;
+  /** Apply an assist suggestion (Azure or rules) onto a contact. */
+  applyProtocolSuggestion: (
+    contactPointId: string,
+    suggestion: ProtocolSuggestion,
+  ) => void;
+  /** Match free text to a literature protocol via assist; auto-apply on high confidence. */
+  suggestProtocolFromText: (
+    contactPointId: string,
+    text: string,
+  ) => Promise<ProtocolSuggestion | null>;
+  loadAssistStatus: () => Promise<void>;
   /** Copy one contact's stimulus setup onto every other contact. */
   copyStimulusToAll: (contactPointId: string) => void;
   setSolverPreset: (preset: SolverPresetId) => void;
   loadCatalog: () => Promise<void>;
   runVerification: () => Promise<void>;
+  runValidationSuite: (options?: {
+    includeSyntheticFixtures?: boolean;
+  }) => Promise<void>;
+  openValidationDashboard: () => void;
+  closeValidationDashboard: () => void;
   runSimulation: () => Promise<void>;
   clearSimulation: () => void;
   getExperimentDefinition: () => ExperimentDefinition;
@@ -188,6 +222,11 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
   catalog: null,
   verification: null,
   verificationStatus: "idle",
+  validationResult: null,
+  validationStatus: "idle",
+  validationError: null,
+  showValidationDashboard: false,
+  assistStatus: null,
   isImporting: false,
   importError: null,
   showAnatomy: false,
@@ -450,11 +489,86 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
                   ...defaultOptionsFor(preset.stimulusType),
                   ...preset.options,
                 },
+                literatureCaseId: null,
               }
             : assignment,
         ),
       };
     }),
+
+  applyLiteratureCase: (contactPointId, caseId) =>
+    set((state) => {
+      const literatureCase = literatureCaseById(caseId);
+      if (!literatureCase) return state;
+
+      return {
+        assignments: state.assignments.map((assignment) =>
+          assignment.contactPointId === contactPointId
+            ? {
+                ...assignment,
+                stimulusType: literatureCase.stimulusType,
+                parameters: {
+                  ...defaultParametersFor(literatureCase.stimulusType),
+                  ...literatureCase.parameters,
+                },
+                options: {
+                  ...defaultOptionsFor(literatureCase.stimulusType),
+                  ...literatureCase.options,
+                },
+                literatureCaseId: literatureCase.id,
+              }
+            : assignment,
+        ),
+      };
+    }),
+
+  applyProtocolSuggestion: (contactPointId, suggestion) =>
+    set((state) => ({
+      assignments: state.assignments.map((assignment) =>
+        assignment.contactPointId === contactPointId
+          ? {
+              ...assignment,
+              stimulusType: "heat",
+              parameters: {
+                ...defaultParametersFor("heat"),
+                ...suggestion.parameters,
+              },
+              options: {
+                ...defaultOptionsFor("heat"),
+                ...suggestion.options,
+              },
+              literatureCaseId: suggestion.caseId,
+            }
+          : assignment,
+      ),
+    })),
+
+  suggestProtocolFromText: async (contactPointId, text) => {
+    const suggestion = await suggestProtocolWithAssist(text, true);
+    if (!suggestion) return null;
+
+    if (suggestion.confidence === "high") {
+      get().applyProtocolSuggestion(contactPointId, suggestion);
+    }
+
+    return suggestion;
+  },
+
+  loadAssistStatus: async () => {
+    try {
+      set({ assistStatus: await fetchAssistStatus() });
+    } catch {
+      set({
+        assistStatus: {
+          configured: false,
+          provider: "rules-only",
+          deployment: null,
+          endpointHost: null,
+          message: "Assist status unavailable outside the desktop app.",
+        },
+      });
+    }
+  },
 
   copyStimulusToAll: (contactPointId) =>
     set((state) => {
@@ -469,6 +583,7 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
           stimulusType: source.stimulusType,
           parameters: { ...source.parameters },
           options: { ...source.options },
+          literatureCaseId: source.literatureCaseId ?? null,
         })),
       };
     }),
@@ -494,6 +609,46 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       });
     } catch {
       set({ verificationStatus: "error" });
+    }
+  },
+
+  openValidationDashboard: () => set({ showValidationDashboard: true }),
+  closeValidationDashboard: () => set({ showValidationDashboard: false }),
+
+  runValidationSuite: async (options) => {
+    set({
+      validationStatus: "running",
+      validationError: null,
+      showValidationDashboard: true,
+    });
+    try {
+      const settings = SOLVER_PRESETS[get().solverPreset].settings;
+      const validationResult = await runValidation({
+        includeSyntheticFixtures: options?.includeSyntheticFixtures ?? false,
+        allowCalibration: true,
+        settings: {
+          ...settings,
+          runConvergenceCheck: false,
+          runSensitivity: false,
+        },
+      });
+      set({
+        validationResult,
+        validationStatus: "complete",
+        validationError: null,
+        showValidationDashboard: true,
+      });
+    } catch (error) {
+      set({
+        validationStatus: "error",
+        validationError:
+          typeof error === "string"
+            ? error
+            : error instanceof Error
+              ? error.message
+              : "Validation suite could not be completed.",
+        showValidationDashboard: true,
+      });
     }
   },
 
@@ -543,6 +698,9 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
         simulationStatus: "complete",
         simulationError: null,
         sidebarTab: "results",
+        // Keep the literature validation overlay opt-in — the workspace run
+        // readout belongs in Results + the bottom terminal.
+        showValidationDashboard: false,
       });
     } catch (error) {
       set({
@@ -565,6 +723,10 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       simulationError: null,
       isPlaying: false,
       playbackTimeS: 0,
+      validationResult: null,
+      validationStatus: "idle",
+      validationError: null,
+      showValidationDashboard: false,
     }),
 
   getExperimentDefinition: () => {

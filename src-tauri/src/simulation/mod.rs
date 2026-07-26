@@ -10,6 +10,7 @@ pub mod contact;
 pub mod mechanics;
 pub mod model;
 pub mod solver;
+pub mod validation;
 pub mod verification;
 
 use std::collections::HashMap;
@@ -308,12 +309,12 @@ enum DeviceSpec {
 }
 
 #[derive(Debug, Clone)]
-struct HeatCase {
+pub(crate) struct HeatCase {
     layers: Vec<LayerMaterial>,
     blood: BloodProperties,
     core_c: f64,
     baseline_skin_c: f64,
-    contact_conductance: f64,
+    pub(crate) contact_conductance: f64,
     device: DeviceSpec,
     exposure_s: f64,
     post_exposure_s: f64,
@@ -323,18 +324,18 @@ struct HeatCase {
     dermal_base_depth_m: f64,
 }
 
-struct CaseOutput {
-    peak_surface_c: f64,
-    peak_basal_c: f64,
+pub(crate) struct CaseOutput {
+    pub(crate) peak_surface_c: f64,
+    pub(crate) peak_basal_c: f64,
     peak_dermal_base_c: f64,
     final_surface_c: f64,
     final_device_c: f64,
-    time_to_44c_s: Option<f64>,
+    pub(crate) time_to_44c_s: Option<f64>,
     omega_basal: f64,
     omega_dermal_base: f64,
     damage_depth_m: Option<f64>,
     peak_surface_flux: f64,
-    series: Vec<ThermalSample>,
+    pub(crate) series: Vec<ThermalSample>,
     depth_profile: Vec<DepthSample>,
     energy: EnergyReport,
     cell_count: usize,
@@ -366,7 +367,7 @@ fn layer_name(profile: &SkinProfile, index: usize) -> &'static str {
 }
 
 /// Run one fully specified case.
-fn solve_case(
+pub(crate) fn solve_case(
     case: &HeatCase,
     settings: &SolverSettings,
     profile: &'static SkinProfile,
@@ -659,7 +660,7 @@ fn validate(contact: &SimulationContact) -> Result<(), String> {
     Ok(())
 }
 
-fn build_case(
+pub(crate) fn build_case(
     contact: &SimulationContact,
     profile: &'static SkinProfile,
     damage: &'static DamageModel,
@@ -1186,7 +1187,7 @@ pub fn run_heat_simulation(request: SimulationRequest) -> Result<SimulationRespo
             disclaimer:
                 "Research prototype. Not clinically validated, not patient-specific, and not medical advice.",
             validation_status:
-                "Verified against analytic solutions and conservation checks. NOT validated against published experimental burn data; no holdout benchmark cases have been run.",
+                "Verified against analytic solutions and conservation checks. Experimental validation dashboard compares locked forearm protocols only; contact-site measured series are not yet available, so no experimental accuracy claim is made.",
         },
         manifest: RunManifest {
             model_version: MODEL_VERSION,
@@ -1202,6 +1203,8 @@ pub fn run_heat_simulation(request: SimulationRequest) -> Result<SimulationRespo
 pub fn run_verification() -> VerificationSuite {
     verification::run_verification_suite()
 }
+
+pub use validation::{run_validation_suite, ValidationRequest, ValidationSuiteReport};
 
 #[cfg(test)]
 mod tests {

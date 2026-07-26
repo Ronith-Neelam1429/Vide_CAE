@@ -55,10 +55,20 @@ muscles — not procedural placeholders or a flat plane. Toggle **Show anatomy**
 to fade the muscle envelope and reveal the full skeleton underneath. Use
 **Anatomy credit** in the viewport for full CC BY-SA attribution.
 
-After a run, the **Results** panel shows a playback timeline. Scrub or play it to
-watch the *actual solver output* animate on the forearm: a heat contact drives a
-hot-spot that reddens and cools with the real surface-temperature series.
-The animation is a view of the simulation data, never a canned effect.
+The GLB is for **placement and visualization only**. Heat/pressure calculations
+use the separate layered site-profile tissue tables (for example volar forearm),
+not material properties sampled from the displayed muscle mesh.
+
+After a heat run, a separate **Heat validation dashboard** opens with locked
+literature protocols (calibration vs hold-out) and measured-vs-predicted metrics
+when eligible raw series exist. The existing Results sidebar is unchanged. The
+playback timeline still animates the workspace heat series on the forearm as a
+view of the simulation data, never a canned effect.
+
+Use **Literature protocol** in the Contacts stimulus form to one-click apply
+PMED or Mayrovitz forearm cases, or describe a protocol in plain language for
+keyword matching. See **`docs/YC_DEMO_ROADMAP.md`** for the build → train →
+test → integrate plan toward the YC demo.
 
 ## Stimuli
 
@@ -203,15 +213,21 @@ The distinction that matters:
 
 - *Verification* asks whether the code solves the equations it claims to. That
   is done, and the suite above is the evidence.
-- *Validation* asks whether those equations predict real tissue response. **That
-  has not been done.** No published experimental burn dataset has been run
-  through this model, and no holdout benchmark exists yet.
+- *Validation* asks whether those equations predict real tissue response. A
+  separate **Heat validation dashboard** now runs locked forearm protocols
+  (calibration vs hold-out) after each heat simulation and reports comparison
+  metrics only — **no experimental pass/fail claim**. The 2026-07-26 source
+  audit did not find two openly redistributable raw contact-site skin
+  temperature–time series, so literature cases currently show predicted
+  protocol curves with metrics marked unavailable. See
+  `benchmarks/heat/SOURCE_AUDIT.md`.
 
 Specific gaps to close before describing any result as accurate:
 
-1. **No experimental benchmarks.** Assemble published cases with their skin
-   site, contact conditions and measured outcomes, split into calibration and
-   holdout sets, and report error against the holdout set only.
+1. **Contact-site measured series still missing.** Protocol manifests exist under
+   `benchmarks/heat/cases/` with a calibration/hold-out split. Drop eligible raw
+   CSVs beside those manifests, set availability to ready, then re-run the
+   dashboard. Do not digitize figures and do not fit the hold-out case.
 2. **Tissue properties are unverified.** Every value carries its source and a
    review status, and all of them currently read as representative literature
    values rather than source-checked ones. They also carry ranges, which is why

@@ -1,4 +1,8 @@
-import type { HeatContactResult, SimulationResult } from "./simulation";
+import type {
+  HeatContactResult,
+  SimulationResult,
+  ValidationSuiteReport,
+} from "./simulation";
 
 function escapeCsv(value: string | number | boolean | null | undefined): string {
   const raw = value === null || value === undefined ? "" : String(value);
@@ -174,4 +178,120 @@ export function exportSimulationBundle(result: SimulationResult): void {
   exportTimeSeriesCsv(result);
   exportDepthProfileCsv(result);
   exportRunManifest(result);
+}
+
+export function exportValidationReport(report: ValidationSuiteReport): void {
+  const stamp = new Date(report.generatedAtUnixMs)
+    .toISOString()
+    .replace(/[:.]/g, "-");
+
+  const metricsHeader = [
+    "case_id",
+    "split",
+    "synthetic",
+    "availability",
+    "sample_count",
+    "rmse_c",
+    "mae_c",
+    "signed_bias_c",
+    "peak_temperature_error_c",
+    "time_to_peak_error_s",
+    "unavailable_reason",
+    "measured_checksum",
+  ];
+  const metricsRows = report.cases.map((entry) => [
+    entry.caseId,
+    entry.split,
+    entry.synthetic,
+    entry.availability,
+    entry.metrics.sampleCount,
+    entry.metrics.rmseC,
+    entry.metrics.maeC,
+    entry.metrics.signedBiasC,
+    entry.metrics.peakTemperatureErrorC,
+    entry.metrics.timeToPeakErrorS,
+    entry.metrics.unavailableReason,
+    entry.measuredSeriesChecksum,
+  ]);
+  download(
+    toCsv(metricsHeader, metricsRows),
+    `vide-validation-metrics-${stamp}.csv`,
+    "text/csv",
+  );
+
+  const seriesHeader = [
+    "case_id",
+    "split",
+    "time_s",
+    "measured_c",
+    "predicted_c",
+    "residual_c",
+  ];
+  const seriesRows = report.cases.flatMap((entry) =>
+    entry.comparison.map((point) => [
+      entry.caseId,
+      entry.split,
+      point.timeS,
+      point.measuredC,
+      point.predictedC,
+      point.residualC,
+    ]),
+  );
+  download(
+    toCsv(seriesHeader, seriesRows),
+    `vide-validation-comparison-${stamp}.csv`,
+    "text/csv",
+  );
+
+  const measuredHeader = ["case_id", "time_s", "temperature_c"];
+  const measuredRows = report.cases.flatMap((entry) =>
+    entry.measuredSeries.map((sample) => [
+      entry.caseId,
+      sample.timeS,
+      sample.temperatureC,
+    ]),
+  );
+  download(
+    toCsv(measuredHeader, measuredRows),
+    `vide-validation-measured-${stamp}.csv`,
+    "text/csv",
+  );
+
+  download(
+    JSON.stringify(
+      {
+        generatedAt: new Date(report.generatedAtUnixMs).toISOString(),
+        modelVersion: report.modelVersion,
+        calibrated: report.calibrated,
+        includeSyntheticFixtures: report.includeSyntheticFixtures,
+        lockedParameters: report.lockedParameters,
+        disclosure: report.disclosure,
+        sourceAudit: report.sourceAudit,
+        cases: report.cases.map((entry) => ({
+          caseId: entry.caseId,
+          title: entry.title,
+          split: entry.split,
+          synthetic: entry.synthetic,
+          availability: entry.availability,
+          availabilityNote: entry.availabilityNote,
+          citation: entry.citation,
+          measurementTarget: entry.measurementTarget,
+          protocolComplete: entry.protocolComplete,
+          measuredSeriesChecksum: entry.measuredSeriesChecksum,
+          lockedParameters: entry.lockedParameters,
+          metrics: entry.metrics,
+          caveats: entry.caveats,
+          peakPredictedSurfaceC: entry.peakPredictedSurfaceC,
+          peakMeasuredC: entry.peakMeasuredC,
+          predictedSeries: entry.predictedSeries,
+          measuredSeries: entry.measuredSeries,
+          comparison: entry.comparison,
+        })),
+      },
+      null,
+      2,
+    ),
+    `vide-validation-report-${stamp}.json`,
+    "application/json",
+  );
 }
