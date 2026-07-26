@@ -1,9 +1,12 @@
 import { Canvas } from "@react-three/fiber";
 import { Suspense, useEffect, useRef } from "react";
+import { useExperimentStore } from "../../store/experimentStore";
 import { Scene } from "./Scene";
 
 export function Viewport() {
   const paneRef = useRef<HTMLElement>(null);
+  const design = useExperimentStore((s) => s.design);
+  const tool = useExperimentStore((s) => s.tool);
 
   useEffect(() => {
     const el = paneRef.current;
@@ -28,7 +31,7 @@ export function Viewport() {
             alpha: false,
             powerPreference: "high-performance",
           }}
-          camera={{ position: [4.5, 3.2, 5.5], fov: 45, near: 0.01, far: 500 }}
+          camera={{ position: [4.8, 3.4, 5.8], fov: 45, near: 0.01, far: 500 }}
         >
           <Suspense fallback={null}>
             <Scene />
@@ -37,17 +40,32 @@ export function Viewport() {
       </div>
 
       <div className="viewport-overlay">
-        <div className="viewport-overlay__coords">World · Origin</div>
+        <div className="viewport-overlay__coords">
+          {design ? `Design · ${design.fileName}` : "Skin patch · 4 × 4"}
+        </div>
         <div className="viewport-overlay__hint">
-          <span className="viewport-chip">
-            <strong>Drag</strong> orbit
-          </span>
-          <span className="viewport-chip">
-            <strong>⌥/Alt + drag</strong> pan
-          </span>
-          <span className="viewport-chip">
-            <strong>Scroll</strong> zoom
-          </span>
+          {design && tool !== "orbit" ? (
+            <>
+              <span className="viewport-chip">
+                <strong>Gizmo</strong> {tool}
+              </span>
+              <span className="viewport-chip">
+                <strong>Orbit tool</strong> free camera
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="viewport-chip">
+                <strong>Drag</strong> orbit
+              </span>
+              <span className="viewport-chip">
+                <strong>⌥/Alt + drag</strong> pan
+              </span>
+              <span className="viewport-chip">
+                <strong>Scroll</strong> zoom
+              </span>
+            </>
+          )}
         </div>
       </div>
     </section>

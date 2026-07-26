@@ -262,6 +262,101 @@
   font-size: 11px;
 }
 
+.sidebar__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sidebar__btn {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--vide-border);
+  border-radius: var(--vide-radius-sm);
+  background: var(--vide-bg-panel-raised);
+  color: var(--vide-text-secondary);
+  text-align: left;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.sidebar__btn:hover:not(:disabled) {
+  background: var(--vide-bg-hover);
+  color: var(--vide-text);
+}
+
+.sidebar__btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.sidebar__btn--primary {
+  border-color: rgba(6, 150, 215, 0.45);
+  background: var(--vide-accent-soft);
+  color: var(--vide-accent-strong);
+  font-weight: 500;
+}
+
+.sidebar__btn--primary:hover:not(:disabled) {
+  border-color: rgba(6, 150, 215, 0.7);
+  color: #7ec8ea;
+}
+
+.sidebar__error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(229, 83, 75, 0.45);
+  border-radius: var(--vide-radius-sm);
+  background: rgba(229, 83, 75, 0.12);
+  color: #f0a8a3;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.sidebar__meta-line {
+  margin: 4px 0 10px 18px;
+  color: var(--vide-text-dim);
+  font-family: var(--vide-font-mono);
+  font-size: 10px;
+}
+
+.sidebar__readout {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--vide-border-subtle);
+  border-radius: var(--vide-radius-md);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.sidebar__readout > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sidebar__readout span {
+  color: var(--vide-text-muted);
+  font-size: 11px;
+}
+
+.sidebar__readout code {
+  color: var(--vide-text-secondary);
+  font-family: var(--vide-font-mono);
+  font-size: 10px;
+}
+
+.top-bar__tool:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.sidebar__tab:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* ---------- Viewport ---------- */
 
 .viewport-pane {
