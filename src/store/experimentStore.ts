@@ -76,8 +76,16 @@ type ExperimentState = {
   verificationStatus: "idle" | "running" | "complete" | "error";
   isImporting: boolean;
   importError: string | null;
+  /** Reveal the internal tissue layers and bone of the forearm model. */
+  showAnatomy: boolean;
+  /** Timeline position (seconds) used to animate the simulated response. */
+  playbackTimeS: number;
+  isPlaying: boolean;
 
   setTool: (tool: ToolMode) => void;
+  toggleAnatomy: () => void;
+  setPlaybackTime: (timeS: number) => void;
+  setPlaying: (value: boolean) => void;
   setSidebarTab: (tab: SidebarTab) => void;
   setImporting: (value: boolean) => void;
   setImportError: (message: string | null) => void;
@@ -152,8 +160,14 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
   verificationStatus: "idle",
   isImporting: false,
   importError: null,
+  showAnatomy: false,
+  playbackTimeS: 0,
+  isPlaying: false,
 
   setTool: (tool) => set({ tool }),
+  toggleAnatomy: () => set((state) => ({ showAnatomy: !state.showAnatomy })),
+  setPlaybackTime: (playbackTimeS) => set({ playbackTimeS }),
+  setPlaying: (isPlaying) => set({ isPlaying }),
   setSidebarTab: (sidebarTab) => set({ sidebarTab }),
   setImporting: (isImporting) => set({ isImporting }),
   setImportError: (importError) => set({ importError }),

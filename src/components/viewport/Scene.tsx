@@ -10,8 +10,8 @@ import {
 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { useExperimentStore } from "../../store/experimentStore";
+import { ArmModel } from "./ArmModel";
 import { ImportedDesign } from "./ImportedDesign";
-import { SkinSurface } from "./SkinSurface";
 import { usePlaneDrag } from "./usePlaneDrag";
 
 function CameraSetup() {
@@ -167,7 +167,7 @@ export function Scene() {
         position={[0, -0.001, 0]}
       />
 
-      <SkinSurface />
+      <ArmModel />
       <PlaceholderCube />
       <ImportedDesign />
       <CadControls />

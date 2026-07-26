@@ -1257,6 +1257,32 @@
   font-weight: 500;
 }
 
+.viewport-toggle {
+  position: absolute;
+  top: 40px;
+  right: 12px;
+  pointer-events: auto;
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--vide-radius-sm);
+  background: rgba(20, 20, 20, 0.72);
+  color: var(--vide-text-secondary);
+  font-size: 11px;
+  backdrop-filter: blur(6px);
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.viewport-toggle:hover {
+  background: rgba(40, 40, 40, 0.85);
+  color: var(--vide-text);
+}
+
+.viewport-toggle.is-active {
+  border-color: rgba(6, 150, 215, 0.5);
+  background: var(--vide-accent-soft);
+  color: var(--vide-accent-strong);
+}
+
 .viewport-overlay__coords {
   position: absolute;
   top: 10px;
