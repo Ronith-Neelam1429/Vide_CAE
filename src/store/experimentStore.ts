@@ -10,6 +10,7 @@ import {
   type SolverPresetId,
   type VerificationSuite,
 } from "../lib/simulation";
+import { runMechanics, type MechanicsResult } from "../lib/mechanics";
 import {
   defaultOptionsFor,
   defaultParametersFor,
@@ -70,6 +71,7 @@ type ExperimentState = {
   simulationResult: SimulationResult | null;
   simulationStatus: "idle" | "running" | "complete" | "error";
   simulationError: string | null;
+  mechanicsResult: MechanicsResult | null;
   solverPreset: SolverPresetId;
   catalog: ModelCatalog | null;
   verification: VerificationSuite | null;
@@ -154,6 +156,7 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
   simulationResult: null,
   simulationStatus: "idle",
   simulationError: null,
+  mechanicsResult: null,
   solverPreset: "balanced",
   catalog: null,
   verification: null,
@@ -185,6 +188,7 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       assignments: [],
       selectedContactId: null,
       simulationResult: null,
+      mechanicsResult: null,
       simulationStatus: "idle",
       simulationError: null,
       importError: null,
@@ -201,6 +205,7 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       assignments: [],
       selectedContactId: null,
       simulationResult: null,
+      mechanicsResult: null,
       simulationStatus: "idle",
       simulationError: null,
       sidebarTab: "design",
@@ -432,21 +437,39 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       return;
     }
 
+    const stimulusFor = (contactId: string) =>
+      state.assignments.find((a) => a.contactPointId === contactId)?.stimulusType;
+    const heatContacts = state.contactPoints.filter(
+      (c) => stimulusFor(c.id) === "heat",
+    );
+    const pressureContacts = state.contactPoints.filter(
+      (c) => stimulusFor(c.id) === "pressure",
+    );
+
     set({
       simulationStatus: "running",
       simulationError: null,
       simulationResult: null,
+      mechanicsResult: null,
+      playbackTimeS: 0,
+      isPlaying: false,
       sidebarTab: "results",
     });
 
+    const settings = SOLVER_PRESETS[state.solverPreset].settings;
+
     try {
-      const simulationResult = await runSimulation(
-        state.contactPoints,
-        state.assignments,
-        SOLVER_PRESETS[state.solverPreset].settings,
-      );
+      const [simulationResult, mechanicsResult] = await Promise.all([
+        heatContacts.length > 0
+          ? runSimulation(heatContacts, state.assignments, settings)
+          : Promise.resolve(null),
+        pressureContacts.length > 0
+          ? runMechanics(pressureContacts, state.assignments, settings)
+          : Promise.resolve(null),
+      ]);
       set({
         simulationResult,
+        mechanicsResult,
         simulationStatus: "complete",
         simulationError: null,
         sidebarTab: "results",
@@ -459,7 +482,7 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
             ? error
             : error instanceof Error
               ? error.message
-              : "The heat simulation could not be completed.",
+              : "The simulation could not be completed.",
       });
     }
   },
@@ -467,8 +490,11 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
   clearSimulation: () =>
     set({
       simulationResult: null,
+      mechanicsResult: null,
       simulationStatus: "idle",
       simulationError: null,
+      isPlaying: false,
+      playbackTimeS: 0,
     }),
 
   getExperimentDefinition: () => {

@@ -113,10 +113,43 @@ export function ArmModel() {
         </group>
       )}
 
-      {/* Heat response lives on the crest (world y = 0). */}
+      {/* Responses live on the crest (world y = 0). */}
       <group position={[0, ARM_RADIUS, 0]}>
         <ActiveHeatSpot />
+        <ActiveMechSpot />
       </group>
     </group>
+  );
+}
+
+function ActiveMechSpot() {
+  const mechanics = useExperimentStore((s) => s.mechanicsResult);
+  const status = useExperimentStore((s) => s.simulationStatus);
+  const playbackTimeS = useExperimentStore((s) => s.playbackTimeS);
+
+  const contact = useMemo(() => {
+    if (!mechanics || mechanics.contacts.length === 0) return null;
+    return mechanics.contacts.reduce((a, b) =>
+      b.summary.peakIndentationUm > a.summary.peakIndentationUm ? b : a,
+    );
+  }, [mechanics]);
+
+  if (!contact || status !== "complete") return null;
+
+  const indentUm =
+    sampleSeriesAtTime(contact.indentationSeries, playbackTimeS, "indentationUm") ?? 0;
+  // Exaggerate for visibility: map the peak indentation to ~0.3 scene units.
+  const peak = Math.max(contact.summary.peakIndentationUm, 1);
+  const depthScene = (indentUm / peak) * 0.3;
+
+  // Contact radius from the area (1 scene unit ≈ 31.5 mm of forearm).
+  const areaMm2 = contact.inputs.contactAreaMm2;
+  const radiusScene = Math.min(0.9, Math.sqrt(areaMm2 / Math.PI) / 31.5);
+
+  return (
+    <mesh position={[0, 0.02 - depthScene, 0]} castShadow>
+      <cylinderGeometry args={[radiusScene, radiusScene * 0.96, 0.12, 40]} />
+      <meshStandardMaterial color="#5b8dd6" metalness={0.3} roughness={0.5} />
+    </mesh>
   );
 }

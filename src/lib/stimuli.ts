@@ -241,6 +241,102 @@ const HEAT_FIELDS: StimulusField[] = [
   },
 ];
 
+const PRESSURE_FIELDS: StimulusField[] = [
+  {
+    kind: "number",
+    key: "appliedPressureKpa",
+    label: "Applied contact pressure",
+    unit: "kPa",
+    min: 0,
+    max: 300000,
+    step: 1,
+    defaultValue: 50,
+    group: "essential",
+    help: "Normal pressure the device presses into the tissue with. Skin contact is tens of kPa; bone fatigue needs MPa-level stress (1 MPa = 1000 kPa).",
+  },
+  {
+    kind: "number",
+    key: "contactAreaMm2",
+    label: "Contact area",
+    unit: "mm²",
+    min: 0.1,
+    max: 50000,
+    step: 1,
+    defaultValue: 400,
+    group: "essential",
+    help: "Sets the contact radius, which controls how deep the load reaches (Boussinesq depth-decay).",
+  },
+  {
+    kind: "number",
+    key: "holdDurationS",
+    label: "Load hold",
+    unit: "s",
+    min: 0.1,
+    max: 86400,
+    step: 1,
+    defaultValue: 30,
+    group: "essential",
+    help: "How long the load is held. Viscoelastic tissue keeps creeping while held.",
+  },
+  {
+    kind: "number",
+    key: "recoveryS",
+    label: "Recovery window",
+    unit: "s",
+    min: 0,
+    max: 86400,
+    step: 1,
+    defaultValue: 30,
+    group: "essential",
+    help: "Time after release, over which recoverable deformation relaxes back.",
+  },
+  {
+    kind: "choice",
+    key: "loadingMode",
+    label: "Loading mode",
+    defaultValue: "static",
+    group: "essential",
+    choices: [
+      { value: "static", label: "Static — single hold and release" },
+      { value: "cyclic", label: "Cyclic — repeated load (bone fatigue)" },
+    ],
+    help: "Cyclic loading evaluates fatigue damage and shape change in load-bearing bone.",
+  },
+  {
+    kind: "number",
+    key: "cycles",
+    label: "Number of cycles",
+    unit: "cycles",
+    min: 1,
+    max: 1e9,
+    step: 1000,
+    defaultValue: 100000,
+    group: "essential",
+    help: "Total load cycles applied (cyclic mode only).",
+  },
+  {
+    kind: "number",
+    key: "frequencyHz",
+    label: "Loading frequency",
+    unit: "Hz",
+    min: 0.01,
+    max: 100,
+    step: 0.1,
+    defaultValue: 1,
+    group: "essential",
+    help: "Cycles per second (cyclic mode only).",
+  },
+  {
+    kind: "choice",
+    key: "skinProfileId",
+    label: "Tissue",
+    defaultValue: "volar-forearm",
+    group: "environment",
+    catalog: "skinProfiles",
+    help: "The organic material being loaded. Choose a bone tissue to study cyclic fatigue.",
+  },
+];
+
 const PLACEHOLDER_NOTE =
   "Not implemented. The heat path must be validated against published data before other stimulus models are added.";
 
@@ -268,10 +364,11 @@ export const BUILTIN_STIMULI: StimulusDefinition[] = [
   },
   {
     type: "pressure",
-    label: "Pressure",
-    description: PLACEHOLDER_NOTE,
-    implemented: false,
-    fields: [],
+    label: "Pressure / mechanical load",
+    description:
+      "Normal-contact compression: viscoelastic deformation over time, permanent set past yield, and cyclic fatigue for bone.",
+    implemented: true,
+    fields: PRESSURE_FIELDS,
   },
 ];
 
@@ -456,6 +553,7 @@ export function visibleFields(
 ): StimulusField[] {
   const control = options.deviceControl ?? "ideal";
   const conductanceOverridden = (parameters.contactConductanceWM2K ?? 0) > 0;
+  const cyclic = (options.loadingMode ?? "static") === "cyclic";
 
   return definition.fields.filter((field) => {
     switch (field.key) {
@@ -468,6 +566,9 @@ export function visibleFields(
       case "interfaceThicknessUm":
       case "contactPressureKpa":
         return !conductanceOverridden;
+      case "cycles":
+      case "frequencyHz":
+        return cyclic;
       default:
         return true;
     }
