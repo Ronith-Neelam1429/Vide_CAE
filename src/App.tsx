@@ -52,6 +52,13 @@ function useToolHotkeys() {
 function App() {
   useToolHotkeys();
   const sidebarTab = useExperimentStore((state) => state.sidebarTab);
+  const loadCatalog = useExperimentStore((state) => state.loadCatalog);
+
+  // Pull the tissue and material tables from the solver once at startup so the
+  // pickers offer exactly what the backend supports.
+  useEffect(() => {
+    void loadCatalog();
+  }, [loadCatalog]);
 
   return (
     <div className={`app-shell${sidebarTab === "results" ? " app-shell--results" : ""}`}>

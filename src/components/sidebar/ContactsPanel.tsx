@@ -1,6 +1,32 @@
 import { stimulusLabel } from "../../lib/stimuli";
-import { useExperimentStore } from "../../store/experimentStore";
+import {
+  useExperimentStore,
+  type StimulusAssignment,
+} from "../../store/experimentStore";
 import { StimulusForm } from "./StimulusForm";
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${Number(seconds.toFixed(1))} s`;
+  if (seconds < 3600) return `${Number((seconds / 60).toFixed(1))} min`;
+  return `${Number((seconds / 3600).toFixed(1))} h`;
+}
+
+/** One-line summary of a contact's configuration for the list row. */
+function describeAssignment(assignment: StimulusAssignment | undefined): string {
+  if (!assignment) return "Unassigned";
+  if (assignment.stimulusType !== "heat") {
+    return `${stimulusLabel(assignment.stimulusType)} · not implemented`;
+  }
+
+  const { temperatureC, durationS, contactAreaMm2 } = assignment.parameters;
+  return [
+    temperatureC === undefined ? null : `${temperatureC} °C`,
+    durationS === undefined ? null : formatDuration(durationS),
+    contactAreaMm2 === undefined ? null : `${contactAreaMm2} mm²`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 export function ContactsPanel() {
   const design = useExperimentStore((s) => s.design);
@@ -104,9 +130,7 @@ export function ContactsPanel() {
                   <span className="contacts-list__text">
                     <span className="contacts-list__name">{contact.label}</span>
                     <span className="contacts-list__meta">
-                      {assignment
-                        ? stimulusLabel(assignment.stimulusType)
-                        : "Unassigned"}
+                      {describeAssignment(assignment)}
                     </span>
                   </span>
                 </button>

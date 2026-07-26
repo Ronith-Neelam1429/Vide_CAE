@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Output of the ignored schema-dump test
+dev/simulation-response.json

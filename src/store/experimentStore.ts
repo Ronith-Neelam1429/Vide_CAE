@@ -1,11 +1,20 @@
 import { create } from "zustand";
 import { computePoseForContactOnSkin } from "../lib/alignContactToSkin";
 import {
+  fetchModelCatalog,
   runSimulation,
+  verifySolver,
+  SOLVER_PRESETS,
+  type ModelCatalog,
   type SimulationResult,
+  type SolverPresetId,
+  type VerificationSuite,
 } from "../lib/simulation";
 import {
+  defaultOptionsFor,
   defaultParametersFor,
+  STIMULUS_PRESETS,
+  type StimulusOptions,
   type StimulusParameters,
   type StimulusType,
 } from "../lib/stimuli";
@@ -35,6 +44,7 @@ export type StimulusAssignment = {
   contactPointId: string;
   stimulusType: StimulusType;
   parameters: StimulusParameters;
+  options: StimulusOptions;
 };
 
 export type ExperimentDefinition = {
@@ -60,6 +70,10 @@ type ExperimentState = {
   simulationResult: SimulationResult | null;
   simulationStatus: "idle" | "running" | "complete" | "error";
   simulationError: string | null;
+  solverPreset: SolverPresetId;
+  catalog: ModelCatalog | null;
+  verification: VerificationSuite | null;
+  verificationStatus: "idle" | "running" | "complete" | "error";
   isImporting: boolean;
   importError: string | null;
 
@@ -88,6 +102,18 @@ type ExperimentState = {
     key: string,
     value: number,
   ) => void;
+  setStimulusOption: (
+    contactPointId: string,
+    key: string,
+    value: string,
+  ) => void;
+  /** Fill every field of one contact from a named scenario. */
+  applyPreset: (contactPointId: string, presetId: string) => void;
+  /** Copy one contact's stimulus setup onto every other contact. */
+  copyStimulusToAll: (contactPointId: string) => void;
+  setSolverPreset: (preset: SolverPresetId) => void;
+  loadCatalog: () => Promise<void>;
+  runVerification: () => Promise<void>;
   runSimulation: () => Promise<void>;
   clearSimulation: () => void;
   getExperimentDefinition: () => ExperimentDefinition;
@@ -102,6 +128,7 @@ function makeAssignment(contactPointId: string): StimulusAssignment {
     contactPointId,
     stimulusType: "heat",
     parameters: defaultParametersFor("heat"),
+    options: defaultOptionsFor("heat"),
   };
 }
 
@@ -119,6 +146,10 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
   simulationResult: null,
   simulationStatus: "idle",
   simulationError: null,
+  solverPreset: "balanced",
+  catalog: null,
+  verification: null,
+  verificationStatus: "idle",
   isImporting: false,
   importError: null,
 
@@ -261,6 +292,7 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
               ...assignment,
               stimulusType,
               parameters: defaultParametersFor(stimulusType),
+              options: defaultOptionsFor(stimulusType),
             }
           : assignment,
       ),
@@ -278,6 +310,104 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       ),
     })),
 
+  setStimulusOption: (contactPointId, key, value) =>
+    set((state) => ({
+      assignments: state.assignments.map((assignment) => {
+        if (assignment.contactPointId !== contactPointId) return assignment;
+
+        const options = { ...assignment.options, [key]: value };
+        const parameters = { ...assignment.parameters };
+
+        // Each interface has its own sensible film thickness; carrying the
+        // previous one over would silently produce a nonsense conductance.
+        if (key === "interfaceMaterialId") {
+          const material = get().catalog?.interfaceMaterials.find(
+            (candidate) => candidate.id === value,
+          );
+          if (material) {
+            parameters.interfaceThicknessUm = material.defaultThicknessUm;
+          }
+        }
+
+        if (key === "skinProfileId") {
+          const profile = get().catalog?.skinProfiles.find(
+            (candidate) => candidate.id === value,
+          );
+          if (profile) {
+            parameters.baselineSkinTemperatureC = profile.baselineSkinC.value;
+          }
+        }
+
+        return { ...assignment, options, parameters };
+      }),
+    })),
+
+  applyPreset: (contactPointId, presetId) =>
+    set((state) => {
+      const preset = STIMULUS_PRESETS.find((candidate) => candidate.id === presetId);
+      if (!preset) return state;
+
+      return {
+        assignments: state.assignments.map((assignment) =>
+          assignment.contactPointId === contactPointId
+            ? {
+                ...assignment,
+                stimulusType: preset.stimulusType,
+                parameters: {
+                  ...defaultParametersFor(preset.stimulusType),
+                  ...preset.parameters,
+                },
+                options: {
+                  ...defaultOptionsFor(preset.stimulusType),
+                  ...preset.options,
+                },
+              }
+            : assignment,
+        ),
+      };
+    }),
+
+  copyStimulusToAll: (contactPointId) =>
+    set((state) => {
+      const source = state.assignments.find(
+        (assignment) => assignment.contactPointId === contactPointId,
+      );
+      if (!source) return state;
+
+      return {
+        assignments: state.assignments.map((assignment) => ({
+          ...assignment,
+          stimulusType: source.stimulusType,
+          parameters: { ...source.parameters },
+          options: { ...source.options },
+        })),
+      };
+    }),
+
+  setSolverPreset: (solverPreset) => set({ solverPreset }),
+
+  loadCatalog: async () => {
+    if (get().catalog) return;
+    try {
+      set({ catalog: await fetchModelCatalog() });
+    } catch {
+      // The catalog only drives labels and defaults, so the app stays usable
+      // without it; the solver falls back to its own defaults.
+    }
+  },
+
+  runVerification: async () => {
+    set({ verificationStatus: "running" });
+    try {
+      set({
+        verification: await verifySolver(),
+        verificationStatus: "complete",
+      });
+    } catch {
+      set({ verificationStatus: "error" });
+    }
+  },
+
   runSimulation: async () => {
     const state = get();
     if (state.contactPoints.length === 0) {
@@ -292,12 +422,14 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       simulationStatus: "running",
       simulationError: null,
       simulationResult: null,
+      sidebarTab: "results",
     });
 
     try {
       const simulationResult = await runSimulation(
         state.contactPoints,
         state.assignments,
+        SOLVER_PRESETS[state.solverPreset].settings,
       );
       set({
         simulationResult,
@@ -309,9 +441,11 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       set({
         simulationStatus: "error",
         simulationError:
-          error instanceof Error
-            ? error.message
-            : "The heat simulation could not be completed.",
+          typeof error === "string"
+            ? error
+            : error instanceof Error
+              ? error.message
+              : "The heat simulation could not be completed.",
       });
     }
   },

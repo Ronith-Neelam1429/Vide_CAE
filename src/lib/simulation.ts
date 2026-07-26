@@ -4,24 +4,251 @@ import type {
   StimulusAssignment,
 } from "../store/experimentStore";
 
+/** A tabulated physical constant together with its range and source. */
+export type Property = {
+  value: number;
+  low: number;
+  high: number;
+  unit: string;
+  source: string;
+  reviewStatus: string;
+};
+
+export type TissueLayer = {
+  name: string;
+  thicknessM: Property;
+  densityKgPerM3: Property;
+  specificHeatJPerKgK: Property;
+  conductivityWPerMK: Property;
+  perfusionPerS: Property;
+  metabolicWPerM3: Property;
+};
+
+export type SkinProfile = {
+  id: string;
+  label: string;
+  site: string;
+  description: string;
+  baselineSkinC: Property;
+  coreC: Property;
+  bloodC: Property;
+  bloodDensityKgPerM3: Property;
+  bloodSpecificHeatJPerKgK: Property;
+  layers: TissueLayer[];
+  citations: string[];
+  reviewStatus: string;
+};
+
+export type DeviceMaterial = {
+  id: string;
+  label: string;
+  densityKgPerM3: number;
+  specificHeatJPerKgK: number;
+  conductivityWPerMK: number;
+  microhardnessPa: number;
+  source: string;
+};
+
+export type InterfaceMaterial = {
+  id: string;
+  label: string;
+  conductivityWPerMK: number;
+  defaultThicknessUm: number;
+  pressureDependent: boolean;
+  source: string;
+};
+
+export type DamageModel = {
+  id: string;
+  label: string;
+  thresholdC: number;
+  regimes: Array<{
+    maxTemperatureC: number | null;
+    frequencyFactorPerS: number;
+    activationEnergyJPerMol: number;
+  }>;
+  citation: string;
+  reviewStatus: string;
+};
+
+export type ModelCatalog = {
+  skinProfiles: SkinProfile[];
+  deviceMaterials: DeviceMaterial[];
+  interfaceMaterials: InterfaceMaterial[];
+  damageModels: DamageModel[];
+};
+
+export type VerificationCase = {
+  id: string;
+  name: string;
+  description: string;
+  reference: string;
+  metric: string;
+  error: number;
+  tolerance: number;
+  passed: boolean;
+};
+
+export type VerificationSuite = {
+  modelVersion: string;
+  cases: VerificationCase[];
+  passed: boolean;
+  summary: string;
+  scope: string;
+};
+
+export type ResolvedInputs = {
+  deviceSetpointC: number;
+  exposureS: number;
+  postExposureS: number;
+  contactAreaMm2: number;
+  deviceThicknessMm: number;
+  contactPressureKpa: number;
+  interfaceThicknessUm: number;
+  ambientTemperatureC: number;
+  baselineSkinTemperatureC: number;
+  deviceControl: string;
+  deviceArealHeatCapacityJPerM2K: number | null;
+  contactConductanceWPerM2K: number;
+};
+
+export type ContactNetwork = {
+  totalWPerM2K: number;
+  interfaceFilmWPerM2K: number | null;
+  solidSpotWPerM2K: number | null;
+  gapWPerM2K: number | null;
+  method: string;
+  notes: string[];
+};
+
+export type DimensionalityCheck = {
+  contactRadiusMm: number;
+  penetrationDepthMm: number;
+  fourierNumber: number;
+  spreadingFactor: number;
+  verdict: string;
+  guidance: string;
+};
+
+export type ResultSummary = {
+  peakSurfaceTemperatureC: number;
+  peakBasalTemperatureC: number;
+  peakDermalBaseTemperatureC: number;
+  finalSurfaceTemperatureC: number;
+  finalDeviceTemperatureC: number;
+  timeTo44cS: number | null;
+  basalDepthMm: number;
+  dermalBaseDepthMm: number;
+  omegaBasal: number;
+  omegaDermalBase: number;
+  damageDepthMm: number | null;
+  riskClassification: string;
+  peakSurfaceFluxWPerM2: number;
+  totalEnergyDeliveredJ: number;
+};
+
 export type ThermalSample = {
   timeS: number;
   surfaceTemperatureC: number;
   basalTemperatureC: number;
+  dermalBaseTemperatureC: number;
+  deviceTemperatureC: number;
   damageOmega: number;
+  surfaceFluxWPerM2: number;
+  phase: "exposure" | "cooling";
+};
+
+export type DepthSample = {
+  depthMm: number;
+  peakTemperatureC: number;
+  finalTemperatureC: number;
+  damageOmega: number;
+  layer: string;
+};
+
+export type EnergyReport = {
+  surfaceInJPerM2: number;
+  coreOutJPerM2: number;
+  perfusionOutJPerM2: number;
+  metabolicInJPerM2: number;
+  storedJPerM2: number;
+  residualJPerM2: number;
+  relativeResidual: number;
+  balanced: boolean;
+};
+
+export type ResultBounds = {
+  nominalPeakBasalC: number;
+  lateralBoundPeakBasalC: number;
+  lateralBoundOmega: number;
+  sensitivityLowPeakBasalC: number;
+  sensitivityHighPeakBasalC: number;
+  note: string;
+};
+
+export type SensitivityEntry = {
+  parameter: string;
+  unit: string;
+  baseline: number;
+  low: number;
+  high: number;
+  peakBasalLowC: number;
+  peakBasalHighC: number;
+  omegaLow: number;
+  omegaHigh: number;
+  peakBasalSpanC: number;
+};
+
+export type ConvergenceMetric = {
+  name: string;
+  unit: string;
+  coarse: number;
+  medium: number;
+  fine: number;
+  relativeChange: number;
+  observedOrder: number | null;
+  extrapolated: number | null;
+  tolerance: number;
+  converged: boolean;
+};
+
+export type ConvergenceReport = {
+  refinementRatio: number;
+  metrics: ConvergenceMetric[];
+  converged: boolean;
+  note: string;
+};
+
+export type ResolvedSolverSettings = {
+  surfaceCellUm: number;
+  maxCellUm: number;
+  growthRatio: number;
+  timeStepMs: number;
+  scheme: string;
+  cellCount: number;
+  stepCount: number;
+  domainDepthMm: number;
 };
 
 export type HeatContactResult = {
   contactPointId: string;
   label: string;
-  surfaceTemperatureC: number;
-  durationS: number;
-  peakSurfaceTemperatureC: number;
-  peakBasalTemperatureC: number;
-  timeTo44cS: number | null;
-  arrheniusDamageOmega: number;
-  riskClassification: string;
+  inputs: ResolvedInputs;
+  skinProfile: SkinProfile;
+  deviceMaterial: DeviceMaterial;
+  interfaceMaterial: InterfaceMaterial;
+  damageModel: DamageModel;
+  contact: ContactNetwork;
+  dimensionality: DimensionalityCheck;
+  summary: ResultSummary;
   series: ThermalSample[];
+  depthProfile: DepthSample[];
+  energy: EnergyReport;
+  bounds: ResultBounds;
+  sensitivity: SensitivityEntry[];
+  convergence: ConvergenceReport | null;
+  solver: ResolvedSolverSettings;
+  warnings: string[];
 };
 
 export type UnsupportedContact = {
@@ -31,16 +258,87 @@ export type UnsupportedContact = {
   reason: string;
 };
 
+export type ModelMetadata = {
+  name: string;
+  version: string;
+  scope: string;
+  governingEquations: string[];
+  numerics: string;
+  citations: string[];
+  disclaimer: string;
+  validationStatus: string;
+};
+
+export type RunManifest = {
+  modelVersion: string;
+  generatedAtUnixMs: number;
+  contactCount: number;
+  verification: VerificationSuite;
+};
+
 export type SimulationResult = {
-  model: {
-    name: string;
-    scope: string;
-    citation: string;
-    disclaimer: string;
-  };
+  model: ModelMetadata;
   contacts: HeatContactResult[];
   unsupportedContacts: UnsupportedContact[];
+  manifest: RunManifest;
 };
+
+export type SolverSettings = {
+  surfaceCellUm: number;
+  maxCellUm: number;
+  growthRatio: number;
+  timeStepMs: number;
+  runConvergenceCheck: boolean;
+  runSensitivity: boolean;
+};
+
+/**
+ * Named accuracy levels, so choosing a fidelity does not require reasoning
+ * about cell sizes and timesteps.
+ */
+export const SOLVER_PRESETS = {
+  draft: {
+    label: "Draft",
+    description: "Coarse mesh, no convergence or sensitivity study. Fastest iteration.",
+    settings: {
+      surfaceCellUm: 12,
+      maxCellUm: 800,
+      growthRatio: 1.18,
+      timeStepMs: 50,
+      runConvergenceCheck: false,
+      runSensitivity: false,
+    },
+  },
+  balanced: {
+    label: "Balanced",
+    description: "Default fidelity with convergence and sensitivity checks enabled.",
+    settings: {
+      surfaceCellUm: 5,
+      maxCellUm: 400,
+      growthRatio: 1.12,
+      timeStepMs: 20,
+      runConvergenceCheck: true,
+      runSensitivity: true,
+    },
+  },
+  publication: {
+    label: "Publication",
+    description: "Fine mesh and timestep. Slowest, and what a reported result should use.",
+    settings: {
+      surfaceCellUm: 2.5,
+      maxCellUm: 200,
+      growthRatio: 1.08,
+      timeStepMs: 10,
+      runConvergenceCheck: true,
+      runSensitivity: true,
+    },
+  },
+} as const satisfies Record<
+  string,
+  { label: string; description: string; settings: SolverSettings }
+>;
+
+export type SolverPresetId = keyof typeof SOLVER_PRESETS;
 
 type SimulationRequest = {
   contacts: Array<{
@@ -48,14 +346,18 @@ type SimulationRequest = {
     label: string;
     stimulusType: string;
     parameters: Record<string, number>;
+    options: Record<string, string>;
   }>;
+  settings: SolverSettings;
 };
 
 export function buildSimulationRequest(
   contacts: ContactPoint[],
   assignments: StimulusAssignment[],
+  settings: SolverSettings,
 ): SimulationRequest {
   return {
+    settings,
     contacts: contacts.flatMap((contact) => {
       const assignment = assignments.find(
         (candidate) => candidate.contactPointId === contact.id,
@@ -68,6 +370,7 @@ export function buildSimulationRequest(
               label: contact.label,
               stimulusType: assignment.stimulusType,
               parameters: assignment.parameters,
+              options: assignment.options,
             },
           ]
         : [];
@@ -78,8 +381,18 @@ export function buildSimulationRequest(
 export async function runSimulation(
   contacts: ContactPoint[],
   assignments: StimulusAssignment[],
+  settings: SolverSettings,
 ): Promise<SimulationResult> {
   return invoke<SimulationResult>("run_simulation", {
-    request: buildSimulationRequest(contacts, assignments),
+    request: buildSimulationRequest(contacts, assignments, settings),
   });
+}
+
+/** Fetch the tissue/material tables the solver uses, so the UI cannot drift. */
+export async function fetchModelCatalog(): Promise<ModelCatalog> {
+  return invoke<ModelCatalog>("model_catalog");
+}
+
+export async function verifySolver(): Promise<VerificationSuite> {
+  return invoke<VerificationSuite>("verify_solver");
 }

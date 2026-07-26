@@ -144,6 +144,7 @@ export function Sidebar() {
   const setTool = useExperimentStore((s) => s.setTool);
   const design = useExperimentStore((s) => s.design);
   const contactCount = useExperimentStore((s) => s.contactPoints.length);
+  const simulationStatus = useExperimentStore((s) => s.simulationStatus);
 
   const openTab = (tab: SidebarTab) => {
     setSidebarTab(tab);
@@ -152,13 +153,22 @@ export function Sidebar() {
     }
   };
 
+  const resultsFooter =
+    simulationStatus === "running"
+      ? "Solving bioheat equation…"
+      : simulationStatus === "error"
+        ? "Run failed · see the message above"
+        : simulationStatus === "complete"
+          ? "Research prototype · verification only, not validated"
+          : "Heat-only research simulation";
+
   const footer =
     sidebarTab === "contacts"
       ? contactCount > 0
         ? `${contactCount} contact${contactCount === 1 ? "" : "s"} · assign stimuli`
         : "Click the mesh to add contacts"
       : sidebarTab === "results"
-        ? "Heat-only research simulation"
+        ? resultsFooter
       : design
         ? "Design ready · place contacts next"
         : "Ready · import a mesh to begin";
