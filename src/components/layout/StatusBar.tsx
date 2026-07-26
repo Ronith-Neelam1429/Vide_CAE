@@ -9,8 +9,8 @@ export function StatusBar() {
         <span className="status-bar__item">Units: mm</span>
       </div>
       <div className="status-bar__right">
-        <span className="status-bar__item status-bar__mono">RMB orbit</span>
-        <span className="status-bar__item status-bar__mono">MMB / Shift pan</span>
+        <span className="status-bar__item status-bar__mono">Drag orbit</span>
+        <span className="status-bar__item status-bar__mono">⌥ drag pan</span>
         <span className="status-bar__item status-bar__mono">Scroll zoom</span>
       </div>
     </footer>

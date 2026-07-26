@@ -40,16 +40,13 @@ export function Viewport() {
         <div className="viewport-overlay__coords">World · Origin</div>
         <div className="viewport-overlay__hint">
           <span className="viewport-chip">
-            <strong>RMB</strong> orbit
+            <strong>Drag</strong> orbit
           </span>
           <span className="viewport-chip">
-            <strong>MMB</strong> pan
+            <strong>⌥/Alt + drag</strong> pan
           </span>
           <span className="viewport-chip">
             <strong>Scroll</strong> zoom
-          </span>
-          <span className="viewport-chip">
-            <strong>Trackpad</strong> two-finger orbit / pinch zoom
           </span>
         </div>
       </div>

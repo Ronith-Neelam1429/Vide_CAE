@@ -1,7 +1,13 @@
 import { Grid, OrbitControls } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
-import { useEffect } from "react";
-import { Color, MOUSE, TOUCH, type PerspectiveCamera } from "three";
+import { useEffect, useRef } from "react";
+import {
+  Color,
+  MOUSE,
+  TOUCH,
+  type PerspectiveCamera,
+} from "three";
+import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 function CameraSetup() {
   const { camera, gl } = useThree();
@@ -31,6 +37,74 @@ function PlaceholderCube() {
         roughness={0.45}
       />
     </mesh>
+  );
+}
+
+function CadControls() {
+  const { gl } = useThree();
+  const controlsRef = useRef<OrbitControlsImpl>(null);
+
+  useEffect(() => {
+    const orbit = controlsRef.current;
+    if (!orbit) return;
+
+    const setLeftButton = (pan: boolean) => {
+      // Primary drag orbits; Alt/Option + drag pans (trackpad-friendly).
+      orbit.mouseButtons.LEFT = pan ? MOUSE.PAN : MOUSE.ROTATE;
+    };
+
+    const syncFromEvent = (event: KeyboardEvent | PointerEvent) => {
+      setLeftButton(event.altKey);
+    };
+
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key === "Alt" || !event.altKey) {
+        setLeftButton(false);
+      }
+    };
+
+    const onBlur = () => setLeftButton(false);
+
+    // Capture phase so LEFT is remapped before OrbitControls handles the gesture.
+    const element = gl.domElement;
+    element.addEventListener("pointerdown", syncFromEvent, true);
+    window.addEventListener("keydown", syncFromEvent);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+
+    return () => {
+      element.removeEventListener("pointerdown", syncFromEvent, true);
+      window.removeEventListener("keydown", syncFromEvent);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+      setLeftButton(false);
+    };
+  }, [gl]);
+
+  return (
+    <OrbitControls
+      ref={controlsRef}
+      makeDefault
+      enableDamping
+      dampingFactor={0.12}
+      minDistance={1.2}
+      maxDistance={60}
+      maxPolarAngle={Math.PI * 0.495}
+      minPolarAngle={0.05}
+      target={[0, 0.5, 0]}
+      mouseButtons={{
+        LEFT: MOUSE.ROTATE,
+        MIDDLE: MOUSE.PAN,
+        RIGHT: MOUSE.ROTATE,
+      }}
+      touches={{
+        ONE: TOUCH.ROTATE,
+        TWO: TOUCH.DOLLY_PAN,
+      }}
+      panSpeed={0.9}
+      rotateSpeed={0.75}
+      zoomSpeed={0.85}
+    />
   );
 }
 
@@ -68,30 +142,7 @@ export function Scene() {
       </mesh>
 
       <PlaceholderCube />
-
-      <OrbitControls
-        makeDefault
-        enableDamping
-        dampingFactor={0.12}
-        minDistance={1.2}
-        maxDistance={60}
-        maxPolarAngle={Math.PI * 0.49}
-        target={[0, 0.5, 0]}
-        mouseButtons={{
-          // Disable LMB so Phase 2 can use it for contact picking.
-          // Shift+RMB still pans via OrbitControls' built-in modifier.
-          LEFT: -1 as MOUSE,
-          MIDDLE: MOUSE.PAN,
-          RIGHT: MOUSE.ROTATE,
-        }}
-        touches={{
-          ONE: TOUCH.ROTATE,
-          TWO: TOUCH.DOLLY_PAN,
-        }}
-        panSpeed={0.9}
-        rotateSpeed={0.75}
-        zoomSpeed={0.85}
-      />
+      <CadControls />
     </>
   );
 }
