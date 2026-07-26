@@ -166,7 +166,10 @@ function CasePanel({ entry }: { entry: ProofLabCaseResult }) {
 
       <div className="proof-lab__banner">
         <strong>Blind protocol.</strong> Vide simulated from locked paper inputs only. Measured
-        data from Wang et al. (figshare CC0) were compared afterward — the solver never saw them.
+        paper values were compared afterward — the solver never saw them.
+        {entry.measurementTarget === "skin_surface"
+          ? " This case compares skin-surface temperature."
+          : " This case compares probe/thermode interface temperature."}
       </div>
 
       <div className="proof-lab__target">

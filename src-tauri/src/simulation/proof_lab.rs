@@ -18,6 +18,14 @@ const WANG_EPOS_PROTOCOL: &str =
     include_str!("../../../benchmarks/proof-lab/wang-epos-2019-subject070/protocol.json");
 const WANG_EPOS_GROUND_TRUTH: &str =
     include_str!("../../../benchmarks/proof-lab/wang-epos-2019-subject070/ground-truth.csv");
+const MAYROVITZ_PROTOCOL: &str =
+    include_str!("../../../benchmarks/proof-lab/mayrovitz-2020-forearm-42c/protocol.json");
+const MAYROVITZ_GROUND_TRUTH: &str =
+    include_str!("../../../benchmarks/proof-lab/mayrovitz-2020-forearm-42c/ground-truth.csv");
+const PETROFSKY_PROTOCOL: &str =
+    include_str!("../../../benchmarks/proof-lab/petrofsky-2011-quad-44c/protocol.json");
+const PETROFSKY_GROUND_TRUTH: &str =
+    include_str!("../../../benchmarks/proof-lab/petrofsky-2011-quad-44c/ground-truth.csv");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -120,11 +128,23 @@ struct ProofLabCaseBundle {
 }
 
 fn proof_lab_cases() -> Result<Vec<ProofLabCaseBundle>, String> {
-    Ok(vec![ProofLabCaseBundle {
-        manifest: serde_json::from_str(WANG_EPOS_PROTOCOL)
-            .map_err(|error| format!("Invalid proof-lab protocol JSON: {error}"))?,
-        ground_truth_csv: WANG_EPOS_GROUND_TRUTH,
-    }])
+    Ok(vec![
+        ProofLabCaseBundle {
+            manifest: serde_json::from_str(MAYROVITZ_PROTOCOL)
+                .map_err(|error| format!("Invalid Mayrovitz protocol JSON: {error}"))?,
+            ground_truth_csv: MAYROVITZ_GROUND_TRUTH,
+        },
+        ProofLabCaseBundle {
+            manifest: serde_json::from_str(PETROFSKY_PROTOCOL)
+                .map_err(|error| format!("Invalid Petrofsky protocol JSON: {error}"))?,
+            ground_truth_csv: PETROFSKY_GROUND_TRUTH,
+        },
+        ProofLabCaseBundle {
+            manifest: serde_json::from_str(WANG_EPOS_PROTOCOL)
+                .map_err(|error| format!("Invalid Wang EPOS protocol JSON: {error}"))?,
+            ground_truth_csv: WANG_EPOS_GROUND_TRUTH,
+        },
+    ])
 }
 
 /// Run the solver from protocol inputs only. Ground truth is not consulted.
@@ -286,18 +306,44 @@ mod tests {
     }
 
     #[test]
-    fn proof_lab_runs_wang_epos_case_with_metrics() {
+    fn proof_lab_runs_skin_and_interface_cases() {
         let report = run_proof_lab(ProofLabRequest::default()).expect("report");
-        assert_eq!(report.cases.len(), 1);
-        let case = &report.cases[0];
-        assert!(case.blind_prediction);
-        assert!(!case.measured_series.is_empty());
-        let hold = case
+        assert_eq!(report.cases.len(), 3);
+
+        let mayrovitz = report
+            .cases
+            .iter()
+            .find(|case| case.case_id.contains("mayrovitz"))
+            .expect("mayrovitz");
+        assert_eq!(mayrovitz.measurement_target, MeasurementTarget::SkinSurface);
+        let mayrovitz_rmse = mayrovitz.windows[0].metrics.rmse_c.expect("rmse");
+        assert!(
+            mayrovitz_rmse < 0.5,
+            "Mayrovitz skin RMSE {mayrovitz_rmse:.3} °C too large"
+        );
+
+        let petrofsky = report
+            .cases
+            .iter()
+            .find(|case| case.case_id.contains("petrofsky"))
+            .expect("petrofsky");
+        assert_eq!(petrofsky.measurement_target, MeasurementTarget::SkinSurface);
+        let petro_rmse = petrofsky.windows[0].metrics.rmse_c.expect("rmse");
+        assert!(
+            petro_rmse < 0.5,
+            "Petrofsky skin RMSE {petro_rmse:.3} °C too large"
+        );
+
+        let interface = report
+            .cases
+            .iter()
+            .find(|case| case.case_id.contains("wang-epos"))
+            .expect("interface case");
+        let hold = interface
             .windows
             .iter()
             .find(|window| window.label.contains("heating hold"))
             .expect("hold window");
-        assert!(hold.metrics.rmse_c.is_some());
-        assert!(hold.sample_count > 100);
+        assert!(hold.metrics.rmse_c.expect("hold rmse") < 1.0);
     }
 }

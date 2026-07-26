@@ -210,6 +210,33 @@ const HEAT_FIELDS: StimulusField[] = [
     help: "Sets layer thicknesses, perfusion and baseline temperature.",
   },
   {
+    kind: "choice",
+    key: "perfusionModel",
+    label: "Blood perfusion",
+    defaultValue: "local-hyperemia",
+    group: "environment",
+    choices: [
+      {
+        value: "local-hyperemia",
+        label: "Local hyperemia — blood flow rises with tissue temperature",
+      },
+      { value: "static", label: "Static — constant baseline perfusion" },
+    ],
+    help: "Local heating can raise cutaneous blood flow ~9× by 42 °C (Mayrovitz 2020). That removes heat and lowers peak skin temperature during long holds.",
+  },
+  {
+    kind: "number",
+    key: "perfusionMaxFold",
+    label: "Max perfusion fold",
+    unit: "×",
+    min: 1,
+    max: 20,
+    step: 0.1,
+    defaultValue: 9,
+    group: "environment",
+    help: "Peak blood-flow / baseline under local heating. Literature forearm values are typically 8–11× near 42 °C.",
+  },
+  {
     kind: "number",
     key: "baselineSkinTemperatureC",
     label: "Baseline skin temperature",

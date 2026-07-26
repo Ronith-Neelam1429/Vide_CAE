@@ -32,10 +32,11 @@ Evidence rule: raw tabular only (no figure digitization); comparison-only report
 
 ### 3. Mayrovitz et al. 2020 — local forearm skin heating
 
-- Paper: Effects of local forearm skin heating on skin properties
+- Paper: Effects of local forearm skin heating on skin properties ([10.1111/cpf.12653](https://doi.org/10.1111/cpf.12653))
 - Protocol: aluminium heater on forearm, 35 °C → 42 °C, ~12 min hold, perfusion/TEWL endpoints
-- Raw open T(t) CSV: **not located**
-- Verdict: **protocol candidate only**; hold-out case reserved until raw contact-site series are obtained
+- Continuous raw open T(t) CSV: **not located**
+- Published discrete IR skin temperatures (text): preheat **29.4 ± 1.1 °C**, immediate post-removal **39.5 ± 1.9 °C**; SBF **8.8×**
+- Verdict: **eligible as a discrete skin-surface checkpoint case** in proof-lab (`mayrovitz-2020-forearm-42c-skin`). Continuous under-heater series still unavailable.
 
 ### 4. Other reviewed sources
 

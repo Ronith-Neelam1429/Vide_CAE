@@ -1,0 +1,50 @@
+{
+  "id": "petrofsky-2011-quad-44c-skin",
+  "title": "Petrofsky 2011 · quadriceps water thermode 44 °C · skin surface",
+  "citation": "Petrofsky J et al. (2011). The ability of the skin to absorb heat; the effect of repeated exposure and age. Med Sci Monit 17(1):CR1–CR8. https://doi.org/10.12659/MSM.881318 PMCID: PMC3524686",
+  "measurementTarget": "skin_surface",
+  "measurementNote": "Published mean thermistor skin temperature under/at the water-perfused thermode (day 1, younger+older pooled for temperature; groups did not differ in Tskin).",
+  "comparisonWindows": [
+    { "label": "Published skin checkpoints", "startS": 0, "endS": 1200 }
+  ],
+  "protocol": {
+    "stimulusType": "heat",
+    "parameters": {
+      "temperatureC": 44,
+      "durationS": 1200,
+      "postExposureS": 0,
+      "contactAreaMm2": 2000,
+      "interfaceThicknessUm": 50,
+      "contactPressureKpa": 2,
+      "ambientTemperatureC": 22,
+      "baselineSkinTemperatureC": 33.1,
+      "deviceThicknessMm": 5,
+      "contactConductanceWM2K": 80,
+      "perfusionMaxFold": 9.0,
+      "perfusionOnsetC": 33,
+      "perfusionHalfMaxC": 39,
+      "perfusionSteepnessC": 1.2
+    },
+    "options": {
+      "skinProfileId": "volar-forearm",
+      "interfaceMaterialId": "water-film",
+      "deviceMaterialId": "aluminium-6061",
+      "deviceControl": "ideal",
+      "damageModelId": "henriques-1947",
+      "perfusionModel": "local-hyperemia"
+    }
+  },
+  "extractedFromPaper": [
+    "Water-perfused Plexiglas thermode ~4×5 cm contact face, inlet water 44 °C",
+    "Placed on skin above medial quadriceps for 20 minutes after 20 min rest",
+    "Skin temperature by thermistor; baseline 33.1 ± 0.9 °C",
+    "Final skin temperature after 20 min heating 40.3 ± 1.8 °C (younger and older groups not different)",
+    "Thermally neutral room; day-1 response used for this locked case"
+  ],
+    "unknowns": [
+      "Exact thermode-skin contact pressure not reported",
+      "Vide uses the volar-forearm 1-D soft-tissue stack as a representative layered column (quadriceps site not a separate profile yet)",
+      "Continuous digitized T(t) curve not extracted — only published mean start/end checkpoints from the text",
+      "Effective contact conductance (80 W/m²K) reflects Plexiglas water-chamber coupling, not metal-plate contact"
+    ]
+}

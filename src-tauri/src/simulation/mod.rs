@@ -28,8 +28,8 @@ use model::{
     MODEL_VERSION,
 };
 use solver::{
-    build_mesh, steady_state, BloodProperties, DeviceControl, DeviceModel, LayerMaterial, Phase,
-    SolverState, SurfaceCoupling,
+    build_mesh, steady_state, BloodProperties, DeviceControl, DeviceModel, LayerMaterial,
+    PerfusionModel, Phase, SolverState, SurfaceCoupling,
 };
 use timeline::ProtocolTimeline;
 use verification::{convergence_metric, ConvergenceReport, VerificationSuite};
@@ -329,6 +329,7 @@ pub(crate) struct HeatCase {
     damage: &'static DamageModel,
     basal_depth_m: f64,
     dermal_base_depth_m: f64,
+    perfusion_model: PerfusionModel,
 }
 
 pub(crate) struct CaseOutput {
@@ -406,7 +407,8 @@ pub(crate) fn solve_case(
     } else {
         setpoint_c
     };
-    let mut state = SolverState::new(mesh, initial, initial_device_c);
+    let mut state =
+        SolverState::with_perfusion(mesh, initial, initial_device_c, case.perfusion_model);
 
     let total_s = case.pre_exposure_s + case.exposure_s + case.post_exposure_s;
     let dt = (settings.time_step_ms / 1000.0)
@@ -707,6 +709,18 @@ fn validate(contact: &SimulationContact) -> Result<(), String> {
     Ok(())
 }
 
+fn perfusion_model_from_contact(contact: &SimulationContact) -> PerfusionModel {
+    match contact.text("perfusionModel", "local-hyperemia") {
+        "static" | "off" | "none" => PerfusionModel::Static,
+        _ => PerfusionModel::LocalHyperemia {
+            onset_c: contact.number_or("perfusionOnsetC", 33.0),
+            half_max_c: contact.number_or("perfusionHalfMaxC", 39.0),
+            max_fold: contact.number_or("perfusionMaxFold", 9.0).max(1.0),
+            steepness_c: contact.number_or("perfusionSteepnessC", 1.2).max(0.05),
+        },
+    }
+}
+
 pub(crate) fn build_case(
     contact: &SimulationContact,
     profile: &'static SkinProfile,
@@ -763,6 +777,7 @@ pub(crate) fn build_case(
         damage,
         basal_depth_m: profile.basal_depth_m(),
         dermal_base_depth_m: profile.dermal_base_depth_m(),
+        perfusion_model: perfusion_model_from_contact(contact),
     }
 }
 

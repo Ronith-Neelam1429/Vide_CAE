@@ -7,7 +7,7 @@
 
 use serde::Serialize;
 
-pub const MODEL_VERSION: &str = "vide-heat-1d-fv-cn/2.0.0";
+pub const MODEL_VERSION: &str = "vide-heat-1d-fv-cn/2.1.0";
 
 /// Review states for a tabulated property. Anything that has not been checked
 /// against the primary source in-app stays `Unreviewed` so exports never imply

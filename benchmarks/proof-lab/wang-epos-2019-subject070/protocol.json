@@ -23,14 +23,19 @@
       "baselineSkinTemperatureC": 33,
       "deviceThicknessMm": 2,
       "controllerGainWM2K": 4000,
-      "controllerMaxFluxWM2": 10000
+      "controllerMaxFluxWM2": 10000,
+      "perfusionMaxFold": 10.4,
+      "perfusionOnsetC": 33,
+      "perfusionHalfMaxC": 39,
+      "perfusionSteepnessC": 1.2
     },
     "options": {
       "skinProfileId": "volar-forearm",
       "interfaceMaterialId": "dry-contact",
       "deviceMaterialId": "aluminium-6061",
       "deviceControl": "regulated",
-      "damageModelId": "henriques-1947"
+      "damageModelId": "henriques-1947",
+      "perfusionModel": "local-hyperemia"
     }
   },
   "extractedFromPaper": [

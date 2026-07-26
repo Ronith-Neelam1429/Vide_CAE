@@ -145,6 +145,61 @@ pub struct BloodProperties {
     pub specific_heat_j_per_kg_k: f64,
 }
 
+/// How cutaneous perfusion responds during a run.
+///
+/// Local thermal hyperemia is the dominant blood-flow effect under contact
+/// heating: Mayrovitz et al. (2020) report ~8.8× forearm SBF at 42 °C, and the
+/// EPOS 42 °C sessions show ~10× total perfusion relative to baseline.
+#[derive(Debug, Clone, Copy)]
+pub enum PerfusionModel {
+    /// Constant baseline perfusion from the tissue profile.
+    Static,
+    /// Temperature-dependent local vasodilation (sigmoid).
+    LocalHyperemia {
+        /// Below this local tissue temperature the multiplier stays at 1.
+        onset_c: f64,
+        /// Temperature at which the fold-change is halfway to its maximum.
+        half_max_c: f64,
+        /// Peak perfusion / baseline (dimensionless), typically 8–12 for 42 °C.
+        max_fold: f64,
+        /// Sigmoid steepness in °C.
+        steepness_c: f64,
+    },
+}
+
+impl Default for PerfusionModel {
+    fn default() -> Self {
+        Self::LocalHyperemia {
+            onset_c: 33.0,
+            half_max_c: 39.0,
+            max_fold: 9.0,
+            steepness_c: 1.2,
+        }
+    }
+}
+
+impl PerfusionModel {
+    pub fn multiplier(self, local_temperature_c: f64) -> f64 {
+        match self {
+            Self::Static => 1.0,
+            Self::LocalHyperemia {
+                onset_c,
+                half_max_c,
+                max_fold,
+                steepness_c,
+            } => {
+                if local_temperature_c <= onset_c || max_fold <= 1.0 {
+                    return 1.0;
+                }
+                let steepness = steepness_c.max(0.05);
+                let fraction =
+                    1.0 / (1.0 + (-(local_temperature_c - half_max_c) / steepness).exp());
+                1.0 + (max_fold - 1.0) * fraction
+            }
+        }
+    }
+}
+
 impl Default for BloodProperties {
     fn default() -> Self {
         Self {
@@ -293,6 +348,9 @@ pub struct SolverState {
     pub energy: EnergyLedger,
     pub elapsed_s: f64,
     initial_temperature_c: Vec<f64>,
+    /// Baseline Pennes coefficients frozen at mesh build; scaled each step.
+    baseline_perfusion_coefficient: Vec<f64>,
+    perfusion_model: PerfusionModel,
 }
 
 /// Solve for the resting temperature profile before any device is applied.
@@ -347,7 +405,21 @@ pub fn steady_state(mesh: &Mesh, surface_temperature_c: f64) -> Vec<f64> {
 
 impl SolverState {
     pub fn new(mesh: Mesh, initial: Vec<f64>, device_temperature_c: f64) -> Self {
+        Self::with_perfusion(mesh, initial, device_temperature_c, PerfusionModel::Static)
+    }
+
+    pub fn with_perfusion(
+        mesh: Mesh,
+        initial: Vec<f64>,
+        device_temperature_c: f64,
+        perfusion_model: PerfusionModel,
+    ) -> Self {
         let count = mesh.cell_count();
+        let baseline_perfusion_coefficient = mesh
+            .cells
+            .iter()
+            .map(|cell| cell.perfusion_coefficient)
+            .collect();
         Self {
             temperature_c: initial.clone(),
             peak_temperature_c: initial.clone(),
@@ -356,7 +428,21 @@ impl SolverState {
             omega: vec![0.0; count],
             energy: EnergyLedger::default(),
             elapsed_s: 0.0,
+            baseline_perfusion_coefficient,
+            perfusion_model,
             mesh,
+        }
+    }
+
+    /// Scale each cell's perfusion from its baseline using the local tissue
+    /// temperature from the previous accepted step (explicit lag of one dt).
+    fn apply_perfusion_model(&mut self) {
+        for index in 0..self.mesh.cells.len() {
+            let multiplier = self
+                .perfusion_model
+                .multiplier(self.temperature_c[index]);
+            self.mesh.cells[index].perfusion_coefficient =
+                self.baseline_perfusion_coefficient[index] * multiplier;
         }
     }
 
@@ -588,6 +674,7 @@ impl SolverState {
 
         for index in 0..steps {
             let theta = if index < RANNACHER_STEPS { 1.0 } else { THETA };
+            self.apply_perfusion_model();
             let previous = self.temperature_c.clone();
             let flux = self.step(step_dt, theta, phase.surface, phase.device);
             self.accumulate_damage(&previous, step_dt, damage);
@@ -684,6 +771,20 @@ mod tests {
             perfusion_per_s: 0.0,
             metabolic_w_per_m3: 0.0,
         }
+    }
+
+    #[test]
+    fn local_hyperemia_fold_matches_mayrovitz_anchor() {
+        let model = PerfusionModel::LocalHyperemia {
+            onset_c: 33.0,
+            half_max_c: 39.0,
+            max_fold: 8.8,
+            steepness_c: 1.2,
+        };
+        assert!((model.multiplier(30.0) - 1.0).abs() < 1e-9);
+        let at_42 = model.multiplier(42.0);
+        assert!(at_42 > 7.0 && at_42 <= 8.8, "fold at 42 °C was {at_42}");
+        assert!(model.multiplier(39.0) > 4.0);
     }
 
     #[test]
