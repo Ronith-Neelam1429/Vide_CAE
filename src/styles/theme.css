@@ -1,0 +1,98 @@
+:root {
+  /* Fusion-adjacent dark engineering palette */
+  --vide-bg-app: #1b1b1b;
+  --vide-bg-toolbar: #2a2a2a;
+  --vide-bg-panel: #252525;
+  --vide-bg-panel-raised: #2e2e2e;
+  --vide-bg-viewport: #1e1e1e;
+  --vide-bg-hover: #333333;
+  --vide-bg-active: #3a3a3a;
+
+  --vide-border: #3c3c3c;
+  --vide-border-subtle: #323232;
+  --vide-divider: #404040;
+
+  --vide-text: #e6e6e6;
+  --vide-text-secondary: #b0b0b0;
+  --vide-text-muted: #8a8a8a;
+  --vide-text-dim: #6a6a6a;
+
+  /* Restrained Autodesk/Fusion-like accent */
+  --vide-accent: #0696d7;
+  --vide-accent-soft: rgba(6, 150, 215, 0.18);
+  --vide-accent-strong: #0aa1e4;
+  --vide-danger: #e5534b;
+  --vide-success: #3fb950;
+
+  --vide-topbar-height: 44px;
+  --vide-statusbar-height: 24px;
+  --vide-sidebar-width: 280px;
+
+  --vide-font-ui: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --vide-font-mono: "IBM Plex Mono", "SF Mono", "Menlo", monospace;
+
+  --vide-radius-sm: 3px;
+  --vide-radius-md: 5px;
+  --vide-shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--vide-font-ui);
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--vide-text);
+  background: var(--vide-bg-app);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4a4a4a;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #5a5a5a;
+  background-clip: content-box;
+  border: 2px solid transparent;
+}

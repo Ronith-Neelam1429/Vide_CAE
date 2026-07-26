@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Vide CAE",
+  "productName": "Vide",
   "version": "0.1.0",
   "identifier": "com.ronithneelam.vide-cae",
   "build": {
@@ -12,9 +12,14 @@
   "app": {
     "windows": [
       {
-        "title": "Vide CAE",
-        "width": 800,
-        "height": 600
+        "title": "Vide",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1280,
+        "minHeight": 800,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
       }
     ],
     "security": {
