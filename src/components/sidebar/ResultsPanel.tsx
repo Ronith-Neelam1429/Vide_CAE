@@ -523,7 +523,8 @@ function ContactResult({ contact }: { contact: HeatContactResult }) {
 
       <div className="result-bounds">
         <div className="result-bounds__title">
-          Peak basal temperature, with uncertainty
+          Peak {shortMarker(contact.skinProfile.shallowMarkerLabel)} temperature,
+          with uncertainty
         </div>
         <div className="result-bounds__value">
           {bounds.nominalPeakBasalC.toFixed(2)} °C
