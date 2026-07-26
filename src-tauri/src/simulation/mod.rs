@@ -9,6 +9,7 @@
 pub mod contact;
 pub mod mechanics;
 pub mod model;
+pub mod proof_lab;
 pub mod solver;
 pub mod timeline;
 pub mod validation;
@@ -188,6 +189,7 @@ pub struct ContactSimulationResult {
 #[serde(rename_all = "camelCase")]
 pub struct ResolvedInputs {
     pub device_setpoint_c: f64,
+    pub pre_exposure_s: f64,
     pub exposure_s: f64,
     pub post_exposure_s: f64,
     pub contact_area_mm2: f64,
@@ -320,6 +322,7 @@ pub(crate) struct HeatCase {
     baseline_skin_c: f64,
     pub(crate) contact_conductance: f64,
     device: DeviceSpec,
+    pre_exposure_s: f64,
     exposure_s: f64,
     post_exposure_s: f64,
     ambient_c: f64,
@@ -394,13 +397,18 @@ pub(crate) fn solve_case(
     // Start from the resting gradient rather than a uniform body temperature;
     // skin already sits well below core before anything touches it.
     let initial = steady_state(&mesh, case.baseline_skin_c);
-    let initial_device_c = match case.device {
+    let setpoint_c = match case.device {
         DeviceSpec::Ideal { setpoint_c } => setpoint_c,
         DeviceSpec::Dynamic(device) => device.setpoint_c,
     };
+    let initial_device_c = if case.pre_exposure_s > 0.0 {
+        case.baseline_skin_c
+    } else {
+        setpoint_c
+    };
     let mut state = SolverState::new(mesh, initial, initial_device_c);
 
-    let total_s = case.exposure_s + case.post_exposure_s;
+    let total_s = case.pre_exposure_s + case.exposure_s + case.post_exposure_s;
     let dt = (settings.time_step_ms / 1000.0)
         .min((total_s / 500.0).max(0.001))
         .clamp(0.0005, 0.1);
@@ -430,7 +438,11 @@ pub(crate) fn solve_case(
             device_temperature_c: initial_device_c,
             damage_omega: 0.0,
             surface_flux_w_per_m2: 0.0,
-            phase: "exposure",
+            phase: if case.pre_exposure_s > 0.0 {
+                "baseline"
+            } else {
+                "exposure"
+            },
         });
         next_sample = sample_interval;
     }
@@ -474,6 +486,22 @@ pub(crate) fn solve_case(
             next_sample += sample_interval;
         }
     };
+
+    if case.pre_exposure_s > 0.0 {
+        state.run_phase(
+            Phase {
+                duration_s: case.pre_exposure_s,
+                surface: SurfaceCoupling::Conductance {
+                    conductance: AMBIENT_COEFFICIENT_W_PER_M2_K,
+                    external_c: case.ambient_c,
+                },
+                device: None,
+            },
+            dt,
+            case.damage,
+            |state, flux| observe(state, flux, "baseline"),
+        );
+    }
 
     let exposure_phase = match case.device {
         DeviceSpec::Ideal { setpoint_c } => Phase {
@@ -655,10 +683,19 @@ fn validate(contact: &SimulationContact) -> Result<(), String> {
             contact.label, setpoint
         ));
     }
+    let pre_exposure = contact.number_or("preExposureS", 0.0).max(0.0);
+    let post_exposure = contact.number_or("postExposureS", 0.0).max(0.0);
+    let total_s = pre_exposure + duration + post_exposure;
     if !(0.1..=3600.0).contains(&duration) {
         return Err(format!(
             "{}: duration {:.2} s is outside the supported 0.1–3600 s range.",
             contact.label, duration
+        ));
+    }
+    if total_s > 7200.0 {
+        return Err(format!(
+            "{}: total protocol length {:.0} s exceeds the 7200 s limit.",
+            contact.label, total_s
         ));
     }
     if contact.number_or("contactAreaMm2", 25.0) <= 0.0 {
@@ -719,6 +756,7 @@ pub(crate) fn build_case(
             .number_or("baselineSkinTemperatureC", profile.baseline_skin_c.value),
         contact_conductance: conductance,
         device,
+        pre_exposure_s: contact.number_or("preExposureS", 0.0).max(0.0),
         exposure_s: contact.number_or("durationS", 10.0),
         post_exposure_s: contact.number_or("postExposureS", 0.0).max(0.0),
         ambient_c,
@@ -956,7 +994,7 @@ fn simulate_heat_contact(
     let dimensionality = check_dimensionality(
         contact_area_m2,
         diffusivity,
-        case.exposure_s + case.post_exposure_s,
+        case.pre_exposure_s + case.exposure_s + case.post_exposure_s,
         case.basal_depth_m,
     );
 
@@ -1022,6 +1060,7 @@ fn simulate_heat_contact(
         label: contact.label.clone(),
         inputs: ResolvedInputs {
             device_setpoint_c: contact.number_or("temperatureC", 44.0),
+            pre_exposure_s: case.pre_exposure_s,
             exposure_s: case.exposure_s,
             post_exposure_s: case.post_exposure_s,
             contact_area_mm2: contact_area_m2 * 1e6,

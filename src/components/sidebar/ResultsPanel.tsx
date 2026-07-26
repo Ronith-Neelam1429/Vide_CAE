@@ -737,6 +737,9 @@ export function ResultsPanel() {
   const contacts = useExperimentStore((s) => s.contactPoints);
   const solverPreset = useExperimentStore((s) => s.solverPreset);
   const setSolverPreset = useExperimentStore((s) => s.setSolverPreset);
+  const openProofLab = useExperimentStore((s) => s.openProofLab);
+  const runProofLab = useExperimentStore((s) => s.runProofLab);
+  const proofLabStatus = useExperimentStore((s) => s.proofLabStatus);
   const openValidationDashboard = useExperimentStore((s) => s.openValidationDashboard);
   const runValidationSuite = useExperimentStore((s) => s.runValidationSuite);
   const validationStatus = useExperimentStore((s) => s.validationStatus);
@@ -837,6 +840,19 @@ export function ResultsPanel() {
             Assign a Heat or Pressure stimulus to your contacts and run. Cold and
             electrical models are not implemented yet.
           </p>
+          <button
+            type="button"
+            className="sidebar__btn"
+            disabled={proofLabStatus === "running"}
+            onClick={() => {
+              openProofLab();
+              if (proofLabStatus === "idle") {
+                void runProofLab();
+              }
+            }}
+          >
+            Proof lab (blind paper test)
+          </button>
         </div>
       )}
 
@@ -957,6 +973,19 @@ export function ResultsPanel() {
               onClick={() => exportRunManifest(result)}
             >
               Export manifest
+            </button>
+            <button
+              type="button"
+              className="results-panel__export"
+              disabled={proofLabStatus === "running"}
+              onClick={() => {
+                openProofLab();
+                if (proofLabStatus === "idle") {
+                  void runProofLab();
+                }
+              }}
+            >
+              Proof lab (blind paper test)
             </button>
             <button
               type="button"

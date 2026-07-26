@@ -288,7 +288,7 @@ fn contact_from_protocol(manifest: &ValidationCaseManifest) -> SimulationContact
     }
 }
 
-fn resolve_conductance(
+pub(crate) fn resolve_conductance(
     contact: &SimulationContact,
     override_conductance: Option<f64>,
 ) -> Result<f64, String> {

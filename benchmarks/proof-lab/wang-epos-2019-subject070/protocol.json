@@ -1,0 +1,48 @@
+{
+  "id": "wang-epos-2019-subject070-42c",
+  "title": "Wang et al. 2019 · EPOS forearm 42 °C · subject T6_070",
+  "citation": "Wang G et al. (2020). A dataset of speed-resolved blood perfusion and oxygen saturation in human skin response to thermal stimulation. Scientific Data / bioRxiv 10.1101/2020.03.04.976456. Data: CC0 figshare 10.6084/m9.figshare.8299343.v4.",
+  "measurementTarget": "thermode_interface",
+  "measurementNote": "EPOS reports temperature at the thermostatic flat probe (controlled heating feedback), not an independent skin-under-probe measurement.",
+  "comparisonWindows": [
+    { "label": "Full 90-min session", "startS": 0, "endS": 5400 },
+    { "label": "30-min heating hold (steady)", "startS": 1900, "endS": 3500 },
+    { "label": "30-min recovery", "startS": 3600, "endS": 5400 }
+  ],
+  "protocol": {
+    "stimulusType": "heat",
+    "parameters": {
+      "preExposureS": 1800,
+      "temperatureC": 42,
+      "durationS": 1800,
+      "postExposureS": 1800,
+      "contactAreaMm2": 113.1,
+      "interfaceThicknessUm": 50,
+      "contactPressureKpa": 2,
+      "ambientTemperatureC": 25,
+      "baselineSkinTemperatureC": 33,
+      "deviceThicknessMm": 2,
+      "controllerGainWM2K": 4000,
+      "controllerMaxFluxWM2": 10000
+    },
+    "options": {
+      "skinProfileId": "volar-forearm",
+      "interfaceMaterialId": "dry-contact",
+      "deviceMaterialId": "aluminium-6061",
+      "deviceControl": "regulated",
+      "damageModelId": "henriques-1947"
+    }
+  },
+  "extractedFromPaper": [
+    "30 min cardiovascular stability + 30 min baseline recording before stimulation",
+    "30 min thermal stimulation at 42 °C setpoint",
+    "30 min recovery after stimulation",
+    "Anterior volar forearm, supine, room 24–26 °C",
+    "PeriFlux 6000 EPOS flat probe at 3 Hz (subject file T6_070_42.mat)"
+  ],
+  "unknowns": [
+    "Exact EPOS flat-probe contact diameter not tabulated; 12 mm disc (113 mm²) assumed from Perimed PF-class geometry",
+    "Interface film thickness and strap pressure not reported",
+    "Subject-specific baseline taken as pre-stimulation mean (~33 °C) from the released record"
+  ]
+}

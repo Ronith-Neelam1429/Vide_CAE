@@ -3,6 +3,7 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { SimulationTerminal } from "./components/layout/SimulationTerminal";
 import { TopBar } from "./components/layout/TopBar";
 import { ValidationDashboard } from "./components/validation/ValidationDashboard";
+import { ProofLabDashboard } from "./components/validation/ProofLabDashboard";
 import { Viewport } from "./components/viewport/Viewport";
 import { useExperimentStore } from "./store/experimentStore";
 import "./styles/theme.css";
@@ -74,6 +75,7 @@ function App() {
       </div>
       <SimulationTerminal />
       <ValidationDashboard />
+      <ProofLabDashboard />
     </div>
   );
 }

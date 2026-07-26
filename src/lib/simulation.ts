@@ -102,6 +102,7 @@ export type VerificationSuite = {
 
 export type ResolvedInputs = {
   deviceSetpointC: number;
+  preExposureS: number;
   exposureS: number;
   postExposureS: number;
   contactAreaMm2: number;
@@ -170,7 +171,7 @@ export type ThermalSample = {
   deviceTemperatureC: number;
   damageOmega: number;
   surfaceFluxWPerM2: number;
-  phase: "exposure" | "cooling";
+  phase: "baseline" | "exposure" | "cooling";
 };
 
 export type DepthSample = {
@@ -500,6 +501,62 @@ export async function runValidation(
         maxCellUm: 400,
         growthRatio: 1.12,
         timeStepMs: 20,
+        runConvergenceCheck: false,
+        runSensitivity: false,
+      },
+    },
+  });
+}
+
+export type WindowComparison = {
+  label: string;
+  startS: number;
+  endS: number;
+  sampleCount: number;
+  metrics: ComparisonMetrics;
+  comparison: ComparisonPoint[];
+  peakMeasuredC: number | null;
+  peakPredictedC: number | null;
+};
+
+export type ProofLabCaseResult = {
+  caseId: string;
+  title: string;
+  citation: string;
+  measurementTarget: MeasurementTarget;
+  measurementNote: string;
+  protocolInputs: Record<string, number>;
+  protocolOptions: Record<string, string>;
+  blindPrediction: boolean;
+  predictedSeries: ThermalSample[];
+  measuredSeries: MeasuredSample[];
+  windows: WindowComparison[];
+  extractedFromPaper: string[];
+  unknowns: string[];
+  caveats: string[];
+};
+
+export type ProofLabReport = {
+  modelVersion: string;
+  generatedAtUnixMs: number;
+  disclosure: string;
+  cases: ProofLabCaseResult[];
+};
+
+export type ProofLabRequest = {
+  settings?: SolverSettings;
+};
+
+export async function runProofLab(
+  request: ProofLabRequest = {},
+): Promise<ProofLabReport> {
+  return invoke<ProofLabReport>("run_proof_lab_validation", {
+    request: {
+      settings: request.settings ?? {
+        surfaceCellUm: 5,
+        maxCellUm: 400,
+        growthRatio: 1.12,
+        timeStepMs: 50,
         runConvergenceCheck: false,
         runSensitivity: false,
       },

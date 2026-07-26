@@ -13,6 +13,7 @@ use simulation::model::{
     INTERFACE_MATERIALS, SKIN_PROFILES,
 };
 use simulation::verification::VerificationSuite;
+use simulation::proof_lab::{run_proof_lab, ProofLabReport, ProofLabRequest};
 use simulation::{
     run_heat_simulation, run_validation_suite, SimulationRequest, SimulationResponse,
     ValidationRequest, ValidationSuiteReport,
@@ -48,7 +49,12 @@ fn run_validation(request: ValidationRequest) -> Result<ValidationSuiteReport, S
     run_validation_suite(request)
 }
 
-/// Whether Azure Foundry / OpenAI assist is configured (never returns secrets).
+/// Blind proof-lab: protocol-only simulation, post-hoc measured comparison.
+#[tauri::command]
+fn run_proof_lab_validation(request: ProofLabRequest) -> Result<ProofLabReport, String> {
+    run_proof_lab(request)
+}
+
 #[tauri::command]
 fn assist_status() -> AssistConfigStatus {
     assist_config_status()
@@ -105,6 +111,7 @@ pub fn run() {
             run_mechanics,
             verify_solver,
             run_validation,
+            run_proof_lab_validation,
             assist_status,
             assist_suggest_protocol,
             assist_extract_protocol,

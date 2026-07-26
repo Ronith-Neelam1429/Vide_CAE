@@ -4,10 +4,12 @@ import type { AnatomyLimbId, AnatomyLimbRotations } from "../lib/anatomyLimbs";
 import {
   fetchModelCatalog,
   runSimulation,
+  runProofLab,
   runValidation,
   verifySolver,
   SOLVER_PRESETS,
   type ModelCatalog,
+  type ProofLabReport,
   type SimulationResult,
   type SolverPresetId,
   type ValidationSuiteReport,
@@ -107,6 +109,10 @@ type ExperimentState = {
   validationStatus: "idle" | "running" | "complete" | "error";
   validationError: string | null;
   showValidationDashboard: boolean;
+  proofLabResult: ProofLabReport | null;
+  proofLabStatus: "idle" | "running" | "complete" | "error";
+  proofLabError: string | null;
+  showProofLab: boolean;
   assistStatus: AssistConfigStatus | null;
   isImporting: boolean;
   importError: string | null;
@@ -197,6 +203,9 @@ type ExperimentState = {
   }) => Promise<void>;
   openValidationDashboard: () => void;
   closeValidationDashboard: () => void;
+  runProofLab: () => Promise<void>;
+  openProofLab: () => void;
+  closeProofLab: () => void;
   runSimulation: () => Promise<void>;
   clearSimulation: () => void;
   getExperimentDefinition: () => ExperimentDefinition;
@@ -252,6 +261,10 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
   validationStatus: "idle",
   validationError: null,
   showValidationDashboard: false,
+  proofLabResult: null,
+  proofLabStatus: "idle",
+  proofLabError: null,
+  showProofLab: false,
   assistStatus: null,
   isImporting: false,
   importError: null,
@@ -673,6 +686,45 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
 
   openValidationDashboard: () => set({ showValidationDashboard: true }),
   closeValidationDashboard: () => set({ showValidationDashboard: false }),
+
+  openProofLab: () => set({ showProofLab: true }),
+  closeProofLab: () => set({ showProofLab: false }),
+
+  runProofLab: async () => {
+    set({
+      proofLabStatus: "running",
+      proofLabError: null,
+      showProofLab: true,
+    });
+    try {
+      const settings = SOLVER_PRESETS[get().solverPreset].settings;
+      const proofLabResult = await runProofLab({
+        settings: {
+          ...settings,
+          timeStepMs: Math.max(settings.timeStepMs, 50),
+          runConvergenceCheck: false,
+          runSensitivity: false,
+        },
+      });
+      set({
+        proofLabResult,
+        proofLabStatus: "complete",
+        proofLabError: null,
+        showProofLab: true,
+      });
+    } catch (error) {
+      set({
+        proofLabStatus: "error",
+        proofLabError:
+          typeof error === "string"
+            ? error
+            : error instanceof Error
+              ? error.message
+              : "Proof-lab comparison could not be completed.",
+        showProofLab: true,
+      });
+    }
+  },
 
   runValidationSuite: async (options) => {
     set({
