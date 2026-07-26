@@ -5,6 +5,7 @@ import {
   type Vec3,
 } from "../../store/experimentStore";
 import { ContactsPanel } from "../sidebar/ContactsPanel";
+import { ResultsPanel } from "../sidebar/ResultsPanel";
 
 function formatVec(v: Vec3, digits = 2): string {
   return v.map((n) => n.toFixed(digits)).join(", ");
@@ -156,6 +157,8 @@ export function Sidebar() {
       ? contactCount > 0
         ? `${contactCount} contact${contactCount === 1 ? "" : "s"} · assign stimuli`
         : "Click the mesh to add contacts"
+      : sidebarTab === "results"
+        ? "Heat-only research simulation"
       : design
         ? "Design ready · place contacts next"
         : "Ready · import a mesh to begin";
@@ -180,12 +183,26 @@ export function Sidebar() {
           >
             Contacts
           </button>
+          <button
+            type="button"
+            className={`sidebar__tab${sidebarTab === "results" ? " is-active" : ""}`}
+            onClick={() => openTab("results")}
+            disabled={!design}
+          >
+            Results
+          </button>
         </div>
       </div>
 
       <section className="sidebar__section">
         <div className="sidebar__body">
-          {sidebarTab === "design" ? <DesignPanel /> : <ContactsPanel />}
+          {sidebarTab === "design" ? (
+            <DesignPanel />
+          ) : sidebarTab === "contacts" ? (
+            <ContactsPanel />
+          ) : (
+            <ResultsPanel />
+          )}
         </div>
       </section>
 

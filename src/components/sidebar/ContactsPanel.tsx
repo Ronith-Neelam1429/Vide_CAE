@@ -12,6 +12,8 @@ export function ContactsPanel() {
   const clearContactPoints = useExperimentStore((s) => s.clearContactPoints);
   const snapContactToSkin = useExperimentStore((s) => s.snapContactToSkin);
   const setTool = useExperimentStore((s) => s.setTool);
+  const runSimulation = useExperimentStore((s) => s.runSimulation);
+  const simulationStatus = useExperimentStore((s) => s.simulationStatus);
 
   const selected = contactPoints.find((c) => c.id === selectedContactId) ?? null;
   const selectedAssignment = assignments.find(
@@ -40,13 +42,25 @@ export function ContactsPanel() {
           Pick contacts on mesh
         </button>
         {contactPoints.length > 0 && (
-          <button
-            type="button"
-            className="sidebar__btn"
-            onClick={() => clearContactPoints()}
-          >
-            Clear all contacts
-          </button>
+          <>
+            <button
+              type="button"
+              className="sidebar__btn sidebar__btn--primary"
+              disabled={simulationStatus === "running"}
+              onClick={() => void runSimulation()}
+            >
+              {simulationStatus === "running"
+                ? "Running heat model…"
+                : "Run heat simulation"}
+            </button>
+            <button
+              type="button"
+              className="sidebar__btn"
+              onClick={() => clearContactPoints()}
+            >
+              Clear all contacts
+            </button>
+          </>
         )}
       </div>
 

@@ -1,6 +1,10 @@
 import { create } from "zustand";
 import { computePoseForContactOnSkin } from "../lib/alignContactToSkin";
 import {
+  runSimulation,
+  type SimulationResult,
+} from "../lib/simulation";
+import {
   defaultParametersFor,
   type StimulusParameters,
   type StimulusType,
@@ -10,7 +14,7 @@ export type Vec3 = [number, number, number];
 export type CadKind = "stl" | "obj";
 export type TransformMode = "translate" | "rotate" | "scale";
 export type ToolMode = "orbit" | "contact" | TransformMode;
-export type SidebarTab = "design" | "contacts";
+export type SidebarTab = "design" | "contacts" | "results";
 
 export type DesignAsset = {
   id: string;
@@ -53,6 +57,9 @@ type ExperimentState = {
   contactPoints: ContactPoint[];
   assignments: StimulusAssignment[];
   selectedContactId: string | null;
+  simulationResult: SimulationResult | null;
+  simulationStatus: "idle" | "running" | "complete" | "error";
+  simulationError: string | null;
   isImporting: boolean;
   importError: string | null;
 
@@ -81,6 +88,8 @@ type ExperimentState = {
     key: string,
     value: number,
   ) => void;
+  runSimulation: () => Promise<void>;
+  clearSimulation: () => void;
   getExperimentDefinition: () => ExperimentDefinition;
 };
 
@@ -107,6 +116,9 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
   contactPoints: [],
   assignments: [],
   selectedContactId: null,
+  simulationResult: null,
+  simulationStatus: "idle",
+  simulationError: null,
   isImporting: false,
   importError: null,
 
@@ -127,6 +139,9 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       contactPoints: [],
       assignments: [],
       selectedContactId: null,
+      simulationResult: null,
+      simulationStatus: "idle",
+      simulationError: null,
       importError: null,
     })),
 
@@ -140,6 +155,9 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       contactPoints: [],
       assignments: [],
       selectedContactId: null,
+      simulationResult: null,
+      simulationStatus: "idle",
+      simulationError: null,
       sidebarTab: "design",
       importError: null,
     })),
@@ -259,6 +277,51 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
           : assignment,
       ),
     })),
+
+  runSimulation: async () => {
+    const state = get();
+    if (state.contactPoints.length === 0) {
+      set({
+        simulationStatus: "error",
+        simulationError: "Add at least one contact point before running a simulation.",
+      });
+      return;
+    }
+
+    set({
+      simulationStatus: "running",
+      simulationError: null,
+      simulationResult: null,
+    });
+
+    try {
+      const simulationResult = await runSimulation(
+        state.contactPoints,
+        state.assignments,
+      );
+      set({
+        simulationResult,
+        simulationStatus: "complete",
+        simulationError: null,
+        sidebarTab: "results",
+      });
+    } catch (error) {
+      set({
+        simulationStatus: "error",
+        simulationError:
+          error instanceof Error
+            ? error.message
+            : "The heat simulation could not be completed.",
+      });
+    }
+  },
+
+  clearSimulation: () =>
+    set({
+      simulationResult: null,
+      simulationStatus: "idle",
+      simulationError: null,
+    }),
 
   getExperimentDefinition: () => {
     const state = get();

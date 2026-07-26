@@ -51,9 +51,10 @@ function useToolHotkeys() {
 
 function App() {
   useToolHotkeys();
+  const sidebarTab = useExperimentStore((state) => state.sidebarTab);
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${sidebarTab === "results" ? " app-shell--results" : ""}`}>
       <TopBar />
       <div className="app-shell__body">
         <Sidebar />
