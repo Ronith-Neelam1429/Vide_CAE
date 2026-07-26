@@ -22,7 +22,11 @@ pub struct AssistConfigStatus {
 }
 
 pub fn load_azure_config() -> Option<AzureOpenAiConfig> {
-    let endpoint = std::env::var(ENV_ENDPOINT).ok()?.trim().trim_end_matches('/').to_string();
+    let endpoint = std::env::var(ENV_ENDPOINT)
+        .ok()?
+        .trim()
+        .trim_end_matches('/')
+        .to_string();
     let api_key = std::env::var(ENV_API_KEY).ok()?.trim().to_string();
     let deployment = std::env::var(ENV_DEPLOYMENT).ok()?.trim().to_string();
 

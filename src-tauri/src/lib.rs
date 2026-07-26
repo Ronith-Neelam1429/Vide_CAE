@@ -3,15 +3,15 @@ mod simulation;
 
 use assist::{
     assist_config_status, extract_protocol_from_text, suggest_protocol_from_text,
-    AssistConfigStatus, ExtractProtocolRequest, ExtractProtocolResponse, SuggestProtocolRequest,
-    ProtocolSuggestion,
+    AssistConfigStatus, ExtractProtocolRequest, ExtractProtocolResponse, ProtocolSuggestion,
+    SuggestProtocolRequest,
 };
 
+use simulation::mechanics::{run_mechanics_simulation, MechanicsResponse};
 use simulation::model::{
     DamageModel, DeviceMaterial, InterfaceMaterial, SkinProfile, DAMAGE_MODELS, DEVICE_MATERIALS,
     INTERFACE_MATERIALS, SKIN_PROFILES,
 };
-use simulation::mechanics::{run_mechanics_simulation, MechanicsResponse};
 use simulation::verification::VerificationSuite;
 use simulation::{
     run_heat_simulation, run_validation_suite, SimulationRequest, SimulationResponse,

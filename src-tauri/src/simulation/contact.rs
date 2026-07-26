@@ -87,7 +87,8 @@ pub fn axial_spreading_factor(
         return 1.0;
     }
 
-    let radial = ierfc((depth_m * depth_m + contact_radius_m * contact_radius_m).sqrt() / denominator);
+    let radial =
+        ierfc((depth_m * depth_m + contact_radius_m * contact_radius_m).sqrt() / denominator);
     ((axial - radial) / axial).clamp(0.0, 1.0)
 }
 
@@ -128,7 +129,9 @@ pub fn contact_network(
         let roughness_m = interface_thickness_m.max(1e-7);
 
         let relative_pressure = (pressure_pa / hardness).clamp(0.0, 1.0);
-        let solid_spot = 1.25 * harmonic_conductivity * (ASPERITY_SLOPE / roughness_m)
+        let solid_spot = 1.25
+            * harmonic_conductivity
+            * (ASPERITY_SLOPE / roughness_m)
             * relative_pressure.powf(0.95);
         let gap = AIR_CONDUCTIVITY_W_PER_M_K / roughness_m;
         let total = solid_spot + gap;

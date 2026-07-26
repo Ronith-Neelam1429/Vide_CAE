@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1.0",
+  "purpose": "Registry only. No mechanics case may be described as calibrated or validated until its raw deformation series and protocol provenance are recorded here.",
+  "model": "vide-mech-1d-viscoelastic-fatigue/0.2.0",
+  "cases": [
+    {
+      "id": "placeholder-no-open-series",
+      "status": "blocked",
+      "modality": "normal-compression",
+      "anatomicalSite": "unassigned",
+      "requiredMeasurements": [
+        "force or applied pressure over time",
+        "contact geometry and boundary condition",
+        "site-specific displacement or strain time series",
+        "subject/site metadata and preconditioning history"
+      ],
+      "reason": "No locked calibration or hold-out case is included until raw series are independently audited."
+    }
+  ]
+}

@@ -18,7 +18,9 @@ export type MechLayerResult = {
 export type IndentSample = {
   timeS: number;
   indentationUm: number;
-  phase: "loading" | "recovery";
+  phase: "loading" | "recovery" | "cyclic-loading" | "cyclic-recovery";
+  cycle: number | null;
+  appliedPressureKpa: number;
 };
 
 export type CycleSample = {
@@ -50,6 +52,9 @@ export type MechInputs = {
   loadingMode: string;
   cycles: number;
   frequencyHz: number;
+  dutyCycle: number;
+  minimumPressureFraction: number;
+  simulatedDurationS: number;
 };
 
 export type MechSummary = {

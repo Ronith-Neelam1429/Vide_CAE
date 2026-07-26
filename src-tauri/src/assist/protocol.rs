@@ -199,7 +199,10 @@ fn suggest_with_rules(text: &str) -> Option<ProtocolSuggestion> {
         case.id,
         case.label,
         confidence_label(best_score),
-        format!("Matched {best_score} protocol keyword(s) in: “{}”", text.trim()),
+        format!(
+            "Matched {best_score} protocol keyword(s) in: “{}”",
+            text.trim()
+        ),
         AssistSource::Rules,
     ))
 }
@@ -209,10 +212,14 @@ fn catalog_context() -> String {
         .into_iter()
         .filter(|id| skin_profile(id).is_some())
         .collect();
-    let device_ids: Vec<_> = ["aluminium-6061", "stainless-steel-316", "silicone-elastomer"]
-        .into_iter()
-        .filter(|id| device_material(id).is_some())
-        .collect();
+    let device_ids: Vec<_> = [
+        "aluminium-6061",
+        "stainless-steel-316",
+        "silicone-elastomer",
+    ]
+    .into_iter()
+    .filter(|id| device_material(id).is_some())
+    .collect();
     let interface_ids: Vec<_> = ["dry-contact", "gel-pad", "mineral-oil"]
         .into_iter()
         .filter(|id| interface_material(id).is_some())
@@ -464,7 +471,10 @@ mod tests {
     #[test]
     fn rules_match_pmed_phrase() {
         let suggestion = suggest_with_rules("PMED CHEPS 45 C forearm 10 s").expect("match");
-        assert_eq!(suggestion.case_id.as_deref(), Some("pmed-forearm-cheps-10s"));
+        assert_eq!(
+            suggestion.case_id.as_deref(),
+            Some("pmed-forearm-cheps-10s")
+        );
         assert_eq!(suggestion.source, AssistSource::Rules);
         assert!(suggestion.parameters.contains_key("temperatureC"));
     }

@@ -25,7 +25,7 @@ use serde::Serialize;
 use super::model::{skin_profile, SkinProfile, DEFAULT_SKIN_PROFILE_ID};
 use super::{SimulationContact, SimulationRequest};
 
-pub const MECH_MODEL_VERSION: &str = "vide-mech-1d-viscoelastic-fatigue/0.1.0";
+pub const MECH_MODEL_VERSION: &str = "vide-mech-1d-viscoelastic-fatigue/0.2.0";
 
 /// Broad mechanical family a tissue layer belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -81,7 +81,8 @@ const FAT_SRC: &str =
     "Adipose (unconfined E ~1-3 kPa); an effective in-situ compressive modulus of 25 kPa is used because the tissue is confined and near-incompressible.";
 const MUSCLE_SRC: &str =
     "Passive skeletal muscle; effective in-situ transverse compressive modulus ~100 kPa (unconfined E is lower).";
-const CARTILAGE_SRC: &str = "Articular cartilage compressive modulus ~0.5-1 MPa; poroelastic creep.";
+const CARTILAGE_SRC: &str =
+    "Articular cartilage compressive modulus ~0.5-1 MPa; poroelastic creep.";
 const CORTICAL_SRC: &str =
     "Reilly & Burstein (1975): cortical bone E ~17 GPa; fatigue S-N from Carter & Caler (1981/1985) and Pattin et al. (1996).";
 const TRABECULAR_SRC: &str = "Cancellous bone E ~0.1-2 GPa; reduced fatigue strength.";
@@ -233,6 +234,9 @@ pub struct MechInputs {
     pub loading_mode: &'static str,
     pub cycles: f64,
     pub frequency_hz: f64,
+    pub duty_cycle: f64,
+    pub minimum_pressure_fraction: f64,
+    pub simulated_duration_s: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -256,6 +260,8 @@ pub struct IndentSample {
     pub time_s: f64,
     pub indentation_um: f64,
     pub phase: &'static str,
+    pub cycle: Option<f64>,
+    pub applied_pressure_kpa: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -384,10 +390,19 @@ fn layer_compression_um(
 /// exponential recovery after release (leaving permanent set once yielded).
 fn strain_at(eff_stress_pa: f64, props: &MechProps, elapsed_s: f64, release: Option<f64>) -> f64 {
     let strain = match release {
-        None => creep_strain(eff_stress_pa, props.youngs_modulus_pa, props.retardation_tau_s, elapsed_s),
+        None => creep_strain(
+            eff_stress_pa,
+            props.youngs_modulus_pa,
+            props.retardation_tau_s,
+            elapsed_s,
+        ),
         Some(hold_s) => {
-            let at_release =
-                creep_strain(eff_stress_pa, props.youngs_modulus_pa, props.retardation_tau_s, hold_s);
+            let at_release = creep_strain(
+                eff_stress_pa,
+                props.youngs_modulus_pa,
+                props.retardation_tau_s,
+                hold_s,
+            );
             let elastic = eff_stress_pa / props.youngs_modulus_pa;
             let permanent = (elastic - props.yield_strain).max(0.0);
             let recoverable = (at_release - permanent).max(0.0);
@@ -422,6 +437,196 @@ fn column_indentation_um(
     total
 }
 
+/// Kelvin–Voigt state after `completed_cycles` full load/unload periods.
+///
+/// The recurrence is analytic, so a 100k-cycle protocol does not need 100k
+/// solver steps. `minimum_pressure_fraction` defines the unloaded baseline:
+/// zero is full release, while a nonzero value models a retained preload.
+fn cyclic_layer_state(
+    low_stress_pa: f64,
+    high_stress_pa: f64,
+    props: &MechProps,
+    load_s: f64,
+    unload_s: f64,
+    completed_cycles: f64,
+) -> (f64, f64) {
+    let tau = props.retardation_tau_s.max(1.0e-6);
+    let alpha = (-load_s / tau).exp();
+    let beta = (-unload_s / tau).exp();
+    let low_target = low_stress_pa / props.youngs_modulus_pa;
+    let high_target = high_stress_pa / props.youngs_modulus_pa;
+    let multiplier = alpha * beta;
+    let offset = low_target * (1.0 - beta) + beta * high_target * (1.0 - alpha);
+    let cycles = completed_cycles.max(0.0);
+    let low_before = if (1.0 - multiplier).abs() < 1.0e-12 {
+        offset * cycles
+    } else {
+        offset * (1.0 - multiplier.powf(cycles)) / (1.0 - multiplier)
+    };
+    let high_after = high_target + (low_before - high_target) * alpha;
+    (
+        low_before.min(props.ultimate_strain),
+        high_after.min(props.ultimate_strain),
+    )
+}
+
+/// Approximate a column indentation from one strain value per layer. This is
+/// used only for the cyclic waveform; stress decay is evaluated at each layer
+/// midpoint when deriving the states above.
+fn indentation_from_layer_strains_um(profile: &SkinProfile, strains: &[f64]) -> f64 {
+    let mut total = 0.0;
+    for (index, layer) in profile.layers.iter().enumerate() {
+        let props = props_for(classify(layer.name));
+        if let Some(strain) = strains.get(index) {
+            total += strain.min(props.ultimate_strain) * layer.thickness_m.value * 1.0e6;
+        }
+        if props.bone_like {
+            break;
+        }
+    }
+    total
+}
+
+fn cyclic_indentation_at(
+    profile: &SkinProfile,
+    high_stress_pa: f64,
+    a_m: f64,
+    load_s: f64,
+    unload_s: f64,
+    minimum_pressure_fraction: f64,
+    completed_cycles: f64,
+    at_load_peak: bool,
+) -> f64 {
+    let mut depth_m = 0.0;
+    let mut strains = Vec::with_capacity(profile.layers.len());
+    for layer in profile.layers {
+        let props = props_for(classify(layer.name));
+        let mid_depth = depth_m + layer.thickness_m.value * 0.5;
+        let high = high_stress_pa * axial_decay(mid_depth, a_m);
+        let low = high * minimum_pressure_fraction;
+        let (low_state, high_state) =
+            cyclic_layer_state(low, high, &props, load_s, unload_s, completed_cycles);
+        strains.push(if at_load_peak { high_state } else { low_state });
+        depth_m += layer.thickness_m.value;
+        if props.bone_like {
+            break;
+        }
+    }
+    indentation_from_layer_strains_um(profile, &strains)
+}
+
+/// Select representative cycle indices for a bounded, readable time series.
+/// The physics uses the actual requested cycle count; only chart sampling is
+/// compressed for large protocols.
+fn representative_cycles(cycles: f64) -> Vec<f64> {
+    let whole = cycles.floor().max(1.0);
+    if whole <= 40.0 {
+        return (0..=whole as usize).map(|value| value as f64).collect();
+    }
+
+    let mut values = vec![0.0, 1.0, 2.0, 3.0];
+    let log_max = whole.log10();
+    for step in 0..48 {
+        let value = 10f64.powf(log_max * step as f64 / 47.0).round();
+        values.push(value.clamp(1.0, whole));
+    }
+    values.push(whole);
+    values.sort_by(|a, b| a.total_cmp(b));
+    values.dedup_by(|a, b| (*a - *b).abs() < 0.5);
+    values
+}
+
+fn build_cyclic_indentation_series(
+    profile: &SkinProfile,
+    stress_pa: f64,
+    a_m: f64,
+    cycles: f64,
+    frequency_hz: f64,
+    duty_cycle: f64,
+    minimum_pressure_fraction: f64,
+    recovery_s: f64,
+) -> Vec<IndentSample> {
+    let period_s = 1.0 / frequency_hz.max(0.01);
+    let load_s = (period_s * duty_cycle.clamp(0.01, 0.99)).max(1.0e-5);
+    let unload_s = (period_s - load_s).max(1.0e-5);
+    let applied_pressure_kpa = stress_pa / 1000.0;
+    let low_pressure_kpa = applied_pressure_kpa * minimum_pressure_fraction;
+    let mut series = Vec::new();
+
+    for cycle in representative_cycles(cycles) {
+        let completed_before = cycle.max(0.0);
+        let low = cyclic_indentation_at(
+            profile,
+            stress_pa,
+            a_m,
+            load_s,
+            unload_s,
+            minimum_pressure_fraction,
+            completed_before,
+            false,
+        );
+        series.push(IndentSample {
+            time_s: completed_before * period_s,
+            indentation_um: low,
+            phase: "cyclic-recovery",
+            cycle: Some(completed_before),
+            applied_pressure_kpa: low_pressure_kpa,
+        });
+
+        if cycle >= cycles {
+            continue;
+        }
+        let high = cyclic_indentation_at(
+            profile,
+            stress_pa,
+            a_m,
+            load_s,
+            unload_s,
+            minimum_pressure_fraction,
+            completed_before,
+            true,
+        );
+        series.push(IndentSample {
+            time_s: completed_before * period_s + load_s,
+            indentation_um: high,
+            phase: "cyclic-loading",
+            cycle: Some(completed_before + 1.0),
+            applied_pressure_kpa,
+        });
+    }
+
+    // Allow a final observed recovery after the last repetition, using the
+    // existing release model. This makes recoveryS meaningful in cyclic mode.
+    if recovery_s > 0.0 {
+        let final_high = cyclic_indentation_at(
+            profile,
+            stress_pa,
+            a_m,
+            load_s,
+            unload_s,
+            minimum_pressure_fraction,
+            cycles.max(1.0) - 1.0,
+            true,
+        );
+        let end_s = cycles.max(1.0) * period_s;
+        let samples = 20usize;
+        for index in 1..=samples {
+            let recovery_t = recovery_s * index as f64 / samples as f64;
+            let decay = (-recovery_t / 8.0).exp();
+            series.push(IndentSample {
+                time_s: end_s + recovery_t,
+                indentation_um: final_high * decay,
+                phase: "recovery",
+                cycle: Some(cycles),
+                applied_pressure_kpa: 0.0,
+            });
+        }
+    }
+
+    series.sort_by(|a, b| a.time_s.total_cmp(&b.time_s));
+    series
+}
+
 fn simulate_mechanics_contact(
     contact: &SimulationContact,
     profile: &'static SkinProfile,
@@ -434,6 +639,9 @@ fn simulate_mechanics_contact(
     let is_cyclic = loading_mode_raw == "cyclic";
     let cycles = contact.number_or("cycles", 100000.0).max(1.0);
     let frequency_hz = contact.number_or("frequencyHz", 1.0).max(0.01);
+    let duty_cycle = (contact.number_or("dutyCycle", 50.0) / 100.0).clamp(0.01, 0.99);
+    let minimum_pressure_fraction = contact.number_or("minimumPressureFraction", 0.0) / 100.0;
+    let minimum_pressure_fraction = minimum_pressure_fraction.clamp(0.0, 0.95);
 
     let stress_pa = applied_pressure_kpa * 1000.0;
     let a_m = contact_radius_m(contact_area_mm2 * 1.0e-6);
@@ -517,8 +725,32 @@ fn simulate_mechanics_contact(
         0.0
     };
 
-    // Indentation over time: creep during the hold, exponential recovery after.
-    let indentation_series = build_indentation_series(profile, stress_pa, a_m, hold_s, recovery_s);
+    // A cyclic protocol is a time-domain load/unload waveform, not just a
+    // static result with a fatigue number appended. Large cycle counts are
+    // analytically propagated and sparsely sampled for display.
+    let indentation_series = if is_cyclic {
+        build_cyclic_indentation_series(
+            profile,
+            stress_pa,
+            a_m,
+            cycles,
+            frequency_hz,
+            duty_cycle,
+            minimum_pressure_fraction,
+            recovery_s,
+        )
+    } else {
+        build_indentation_series(profile, stress_pa, a_m, hold_s, recovery_s)
+    };
+
+    let cyclic_peak_indentation_um = indentation_series
+        .iter()
+        .map(|sample| sample.indentation_um)
+        .fold(0.0, f64::max);
+    let cyclic_residual_indentation_um = indentation_series
+        .last()
+        .map(|sample| sample.indentation_um)
+        .unwrap_or(0.0);
 
     // Fatigue: evaluate the stiffest bone-like layer under cyclic load.
     let fatigue = if is_cyclic {
@@ -544,13 +776,23 @@ fn simulate_mechanics_contact(
     };
 
     if is_cyclic && fatigue.is_none() {
-        warnings
-            .push("No load-bearing bone layer in this tissue; cyclic fatigue was not evaluated.".to_string());
+        warnings.push(
+            "No load-bearing bone layer in this tissue; cyclic fatigue was not evaluated."
+                .to_string(),
+        );
     }
 
     let summary = MechSummary {
-        peak_indentation_um,
-        residual_indentation_um,
+        peak_indentation_um: if is_cyclic {
+            cyclic_peak_indentation_um
+        } else {
+            peak_indentation_um
+        },
+        residual_indentation_um: if is_cyclic {
+            cyclic_residual_indentation_um
+        } else {
+            residual_indentation_um
+        },
         peak_stress_kpa: stress_pa / 1000.0,
         max_strain,
         deformation_percent,
@@ -569,6 +811,12 @@ fn simulate_mechanics_contact(
             loading_mode: if is_cyclic { "cyclic" } else { "static" },
             cycles,
             frequency_hz,
+            duty_cycle,
+            minimum_pressure_fraction,
+            simulated_duration_s: indentation_series
+                .last()
+                .map(|sample| sample.time_s)
+                .unwrap_or(hold_s + recovery_s),
         },
         skin_profile: profile,
         layers,
@@ -598,6 +846,8 @@ fn build_indentation_series(
             time_s: t,
             indentation_um: column_indentation_um(profile, stress_pa, a_m, t, release),
             phase: if releasing { "recovery" } else { "loading" },
+            cycle: None,
+            applied_pressure_kpa: if releasing { 0.0 } else { stress_pa / 1000.0 },
         });
     }
     series
@@ -748,7 +998,10 @@ mod tests {
             label: "CP-1".to_string(),
             stimulus_type: "pressure".to_string(),
             parameters: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
-            options: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            options: opts
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
         }
     }
 
@@ -760,12 +1013,18 @@ mod tests {
     fn softer_tissue_compresses_more_than_bone() {
         // Same stress: a soft skin column indents far more than a bony column.
         let skin = simulate_mechanics_contact(
-            &pressure_contact(&[("appliedPressureKpa", 20.0)], &[("skinProfileId", "volar-forearm")]),
+            &pressure_contact(
+                &[("appliedPressureKpa", 20.0)],
+                &[("skinProfileId", "volar-forearm")],
+            ),
             profile("volar-forearm"),
         )
         .unwrap();
         let bone = simulate_mechanics_contact(
-            &pressure_contact(&[("appliedPressureKpa", 20.0)], &[("skinProfileId", "cortical-bone")]),
+            &pressure_contact(
+                &[("appliedPressureKpa", 20.0)],
+                &[("skinProfileId", "cortical-bone")],
+            ),
             profile("cortical-bone"),
         )
         .unwrap();
@@ -786,7 +1045,10 @@ mod tests {
         )
         .unwrap();
         let long = simulate_mechanics_contact(
-            &pressure_contact(&[("appliedPressureKpa", 5.0), ("holdDurationS", 120.0)], &[]),
+            &pressure_contact(
+                &[("appliedPressureKpa", 5.0), ("holdDurationS", 120.0)],
+                &[],
+            ),
             profile("volar-forearm"),
         )
         .unwrap();
@@ -795,11 +1057,56 @@ mod tests {
     }
 
     #[test]
+    fn cyclic_protocol_contains_repeated_load_and_recovery_extrema() {
+        let result = simulate_mechanics_contact(
+            &pressure_contact(
+                &[
+                    ("appliedPressureKpa", 10.0),
+                    ("cycles", 10.0),
+                    ("frequencyHz", 2.0),
+                    ("dutyCycle", 40.0),
+                    ("minimumPressureFraction", 0.0),
+                    ("recoveryS", 0.0),
+                ],
+                &[("loadingMode", "cyclic")],
+            ),
+            profile("volar-forearm"),
+        )
+        .unwrap();
+
+        assert!(result
+            .indentation_series
+            .iter()
+            .any(|sample| sample.phase == "cyclic-loading"));
+        assert!(result
+            .indentation_series
+            .iter()
+            .any(|sample| sample.phase == "cyclic-recovery"));
+        assert_eq!(result.inputs.simulated_duration_s, 5.0);
+        let peak = result
+            .indentation_series
+            .iter()
+            .filter(|sample| sample.phase == "cyclic-loading")
+            .map(|sample| sample.indentation_um)
+            .fold(0.0, f64::max);
+        let trough = result
+            .indentation_series
+            .iter()
+            .filter(|sample| sample.phase == "cyclic-recovery")
+            .map(|sample| sample.indentation_um)
+            .fold(f64::INFINITY, f64::min);
+        assert!(peak > trough);
+    }
+
+    #[test]
     fn higher_stress_shortens_bone_fatigue_life() {
         let low = simulate_mechanics_contact(
             &pressure_contact(
                 &[("appliedPressureKpa", 40_000.0), ("cycles", 1.0)],
-                &[("skinProfileId", "cortical-bone"), ("loadingMode", "cyclic")],
+                &[
+                    ("skinProfileId", "cortical-bone"),
+                    ("loadingMode", "cyclic"),
+                ],
             ),
             profile("cortical-bone"),
         )
@@ -807,7 +1114,10 @@ mod tests {
         let high = simulate_mechanics_contact(
             &pressure_contact(
                 &[("appliedPressureKpa", 80_000.0), ("cycles", 1.0)],
-                &[("skinProfileId", "cortical-bone"), ("loadingMode", "cyclic")],
+                &[
+                    ("skinProfileId", "cortical-bone"),
+                    ("loadingMode", "cyclic"),
+                ],
             ),
             profile("cortical-bone"),
         )
@@ -815,7 +1125,10 @@ mod tests {
 
         let low_nf = low.fatigue.as_ref().unwrap().cycles_to_failure;
         let high_nf = high.fatigue.as_ref().unwrap().cycles_to_failure;
-        assert!(high_nf < low_nf, "higher stress must give fewer cycles: {high_nf} !< {low_nf}");
+        assert!(
+            high_nf < low_nf,
+            "higher stress must give fewer cycles: {high_nf} !< {low_nf}"
+        );
     }
 
     #[test]
@@ -831,7 +1144,10 @@ mod tests {
         let r = simulate_mechanics_contact(
             &pressure_contact(
                 &[("appliedPressureKpa", 60_000.0), ("cycles", 100000.0)],
-                &[("skinProfileId", "cortical-bone"), ("loadingMode", "cyclic")],
+                &[
+                    ("skinProfileId", "cortical-bone"),
+                    ("loadingMode", "cyclic"),
+                ],
             ),
             profile("cortical-bone"),
         )

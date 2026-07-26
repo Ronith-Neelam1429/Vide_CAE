@@ -115,6 +115,18 @@ export type ResolvedInputs = {
   contactConductanceWPerM2K: number;
 };
 
+export type TimelineSegment = {
+  kind: "hold" | "ramp" | "release" | "repeat";
+  durationS: number;
+  repetitions: number;
+  dutyCycle: number | null;
+  label: string;
+};
+
+export type ProtocolTimeline = {
+  segments: TimelineSegment[];
+};
+
 export type ContactNetwork = {
   totalWPerM2K: number;
   interfaceFilmWPerM2K: number | null;
@@ -237,6 +249,7 @@ export type HeatContactResult = {
   contactPointId: string;
   label: string;
   inputs: ResolvedInputs;
+  protocolTimeline: ProtocolTimeline;
   skinProfile: SkinProfile;
   deviceMaterial: DeviceMaterial;
   interfaceMaterial: InterfaceMaterial;

@@ -106,8 +106,7 @@ pub fn build_mesh(
                 center_m: running_depth + width / 2.0,
                 width_m: width,
                 conductivity: layer.conductivity_w_per_m_k,
-                volumetric_heat_capacity: layer.density_kg_per_m3
-                    * layer.specific_heat_j_per_kg_k,
+                volumetric_heat_capacity: layer.density_kg_per_m3 * layer.specific_heat_j_per_kg_k,
                 perfusion_coefficient: layer.perfusion_per_s
                     * blood.density_kg_per_m3
                     * blood.specific_heat_j_per_kg_k,
@@ -445,13 +444,14 @@ impl SolverState {
                 + control_conductance * (device.setpoint_c - self.device_temperature_c)
                 + control_flux;
 
-            diagonal[0] =
-                capacity + theta * (surface_conductance + back + control_conductance);
+            diagonal[0] = capacity + theta * (surface_conductance + back + control_conductance);
             upper[0] = -theta * surface_conductance;
             rhs[0] = capacity * self.device_temperature_c
                 + (1.0 - theta) * residual_now
-                + theta * (back * device.ambient_c + control_conductance * device.setpoint_c
-                    + control_flux);
+                + theta
+                    * (back * device.ambient_c
+                        + control_conductance * device.setpoint_c
+                        + control_flux);
         }
 
         for index in 0..count {
@@ -489,8 +489,7 @@ impl SolverState {
                 + metabolic
                 + if index == 0 { surface_flux } else { 0.0 };
 
-            diagonal[row] =
-                capacity + theta * (left_conductance + right_conductance + perfusion);
+            diagonal[row] = capacity + theta * (left_conductance + right_conductance + perfusion);
             rhs[row] = capacity * self.temperature_c[index]
                 + (1.0 - theta) * residual_now
                 + theta * (perfusion * blood_temperature + metabolic)
@@ -549,10 +548,9 @@ impl SolverState {
         };
         self.energy.surface_in_j_per_m2 += surface_flux_avg * dt;
 
-        let core_flux = theta
-            * core_conductance
-            * (self.temperature_c[count - 1] - core_temperature)
-            + (1.0 - theta) * core_conductance * (previous[count - 1] - core_temperature);
+        let core_flux =
+            theta * core_conductance * (self.temperature_c[count - 1] - core_temperature)
+                + (1.0 - theta) * core_conductance * (previous[count - 1] - core_temperature);
         self.energy.core_out_j_per_m2 += core_flux * dt;
 
         for index in 0..count {
@@ -690,7 +688,11 @@ mod tests {
 
     #[test]
     fn mesh_closes_exactly_on_layer_boundaries() {
-        let layers = [uniform_layer(0.0001), uniform_layer(0.002), uniform_layer(0.02)];
+        let layers = [
+            uniform_layer(0.0001),
+            uniform_layer(0.002),
+            uniform_layer(0.02),
+        ];
         let mesh = build_mesh(&layers, 5e-6, 5e-4, 1.15, BloodProperties::default(), 37.0);
 
         assert!((mesh.depth_m - 0.0221).abs() < 1e-12);

@@ -249,7 +249,12 @@ const fn skin_cover(thickness_m: f64, low: f64, high: f64) -> TissueLayerSpec {
     }
 }
 
-const fn cortical_bone(name: &'static str, thickness_m: f64, low: f64, high: f64) -> TissueLayerSpec {
+const fn cortical_bone(
+    name: &'static str,
+    thickness_m: f64,
+    low: f64,
+    high: f64,
+) -> TissueLayerSpec {
     TissueLayerSpec {
         name,
         thickness_m: prop(thickness_m, low, high, "m", THICKNESS_SOURCE),
@@ -840,8 +845,7 @@ impl DamageModel {
 
         let temperature_k = temperature_c + 273.15;
         regime.frequency_factor_per_s
-            * (-regime.activation_energy_j_per_mol
-                / (GAS_CONSTANT_J_PER_MOL_K * temperature_k))
+            * (-regime.activation_energy_j_per_mol / (GAS_CONSTANT_J_PER_MOL_K * temperature_k))
                 .exp()
     }
 }
@@ -850,10 +854,7 @@ impl DamageModel {
 ///
 /// This reports the depth the model places the Ω = 1 isopleth at; it is not a
 /// clinical diagnosis.
-pub fn burn_classification(
-    omega_basal: f64,
-    omega_dermal_base: f64,
-) -> &'static str {
+pub fn burn_classification(omega_basal: f64, omega_dermal_base: f64) -> &'static str {
     if omega_dermal_base >= 1.0 {
         "Ω ≥ 1 at the dermal base (full-thickness depth in this model)"
     } else if omega_basal >= 1.0 {

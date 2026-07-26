@@ -10,6 +10,7 @@ pub mod contact;
 pub mod mechanics;
 pub mod model;
 pub mod solver;
+pub mod timeline;
 pub mod validation;
 pub mod verification;
 
@@ -29,6 +30,7 @@ use solver::{
     build_mesh, steady_state, BloodProperties, DeviceControl, DeviceModel, LayerMaterial, Phase,
     SolverState, SurfaceCoupling,
 };
+use timeline::ProtocolTimeline;
 use verification::{convergence_metric, ConvergenceReport, VerificationSuite};
 
 /// Combined natural convection and linearised radiation from bare skin or a
@@ -163,6 +165,8 @@ pub struct ContactSimulationResult {
     pub contact_point_id: String,
     pub label: String,
     pub inputs: ResolvedInputs,
+    /// Modality-neutral form of the legacy exposure/cooling parameters.
+    pub protocol_timeline: ProtocolTimeline,
     pub skin_profile: &'static SkinProfile,
     pub device_material: &'static DeviceMaterial,
     pub interface_material: &'static InterfaceMaterial,
@@ -635,9 +639,12 @@ fn damage_depth(state: &SolverState) -> Option<f64> {
 // ---------------------------------------------------------------------------
 
 fn validate(contact: &SimulationContact) -> Result<(), String> {
-    let setpoint = contact
-        .number("temperatureC")
-        .ok_or_else(|| format!("{}: heat stimulus is missing a target temperature.", contact.label))?;
+    let setpoint = contact.number("temperatureC").ok_or_else(|| {
+        format!(
+            "{}: heat stimulus is missing a target temperature.",
+            contact.label
+        )
+    })?;
     let duration = contact
         .number("durationS")
         .ok_or_else(|| format!("{}: heat stimulus is missing a duration.", contact.label))?;
@@ -655,7 +662,10 @@ fn validate(contact: &SimulationContact) -> Result<(), String> {
         ));
     }
     if contact.number_or("contactAreaMm2", 25.0) <= 0.0 {
-        return Err(format!("{}: contact area must be greater than zero.", contact.label));
+        return Err(format!(
+            "{}: contact area must be greater than zero.",
+            contact.label
+        ));
     }
     Ok(())
 }
@@ -705,7 +715,8 @@ pub(crate) fn build_case(
             specific_heat_j_per_kg_k: profile.blood_specific_heat_j_per_kg_k.value,
         },
         core_c: profile.core_c.value,
-        baseline_skin_c: contact.number_or("baselineSkinTemperatureC", profile.baseline_skin_c.value),
+        baseline_skin_c: contact
+            .number_or("baselineSkinTemperatureC", profile.baseline_skin_c.value),
         contact_conductance: conductance,
         device,
         exposure_s: contact.number_or("durationS", 10.0),
@@ -769,8 +780,7 @@ fn run_sensitivity(
                 case.layers[index].thickness_m = value_mm / 1000.0;
                 // Marker depths move with the layers they sit between.
                 case.basal_depth_m = case.layers[0].thickness_m;
-                case.dermal_base_depth_m =
-                    case.layers[0].thickness_m + case.layers[1].thickness_m;
+                case.dermal_base_depth_m = case.layers[0].thickness_m + case.layers[1].thickness_m;
             },
         );
 
@@ -950,7 +960,13 @@ fn simulate_heat_contact(
         case.basal_depth_m,
     );
 
-    let lateral = lateral_bound(&output.series, case.basal_depth_m, diffusivity, contact_area_m2, damage);
+    let lateral = lateral_bound(
+        &output.series,
+        case.basal_depth_m,
+        diffusivity,
+        contact_area_m2,
+        damage,
+    );
 
     let sensitivity = if settings.run_sensitivity {
         run_sensitivity(&case, settings, profile)
@@ -963,7 +979,8 @@ fn simulate_heat_contact(
         |(low, high), entry| {
             (
                 low.min(entry.peak_basal_low_c).min(entry.peak_basal_high_c),
-                high.max(entry.peak_basal_low_c).max(entry.peak_basal_high_c),
+                high.max(entry.peak_basal_low_c)
+                    .max(entry.peak_basal_high_c),
             )
         },
     );
@@ -1017,6 +1034,10 @@ fn simulate_heat_contact(
             device_areal_heat_capacity_j_per_m2_k: device_areal_heat_capacity,
             contact_conductance_w_per_m2_k: network.total_w_per_m2_k,
         },
+        protocol_timeline: ProtocolTimeline::exposure_and_cooling(
+            case.exposure_s,
+            case.post_exposure_s,
+        ),
         skin_profile: profile,
         device_material: device_mat,
         interface_material: interface_mat,
@@ -1104,7 +1125,10 @@ fn collect_warnings(
 
     if let Some(report) = convergence {
         if !report.converged {
-            warnings.push(format!("Numerical convergence not demonstrated. {}", report.note));
+            warnings.push(format!(
+                "Numerical convergence not demonstrated. {}",
+                report.note
+            ));
         }
     }
 
@@ -1239,7 +1263,9 @@ mod tests {
         let contact = heat_contact(&[("temperatureC", 60.0), ("durationS", 10.0)], &[]);
         let result = simulate_heat_contact(&contact, &fast_settings()).expect("valid input");
 
-        assert!(result.summary.peak_basal_temperature_c > result.inputs.baseline_skin_temperature_c);
+        assert!(
+            result.summary.peak_basal_temperature_c > result.inputs.baseline_skin_temperature_c
+        );
         assert!(!result.series.is_empty());
         assert!(result.energy.balanced);
     }
@@ -1297,9 +1323,7 @@ mod tests {
 
         assert!((ideal.summary.final_device_temperature_c - 60.0).abs() < 1e-9);
         assert!(passive.summary.final_device_temperature_c < 60.0);
-        assert!(
-            passive.summary.peak_basal_temperature_c < ideal.summary.peak_basal_temperature_c
-        );
+        assert!(passive.summary.peak_basal_temperature_c < ideal.summary.peak_basal_temperature_c);
     }
 
     #[test]
@@ -1326,15 +1350,24 @@ mod tests {
         ] {
             let profile = skin_profile(id).unwrap_or_else(|| panic!("missing profile {id}"));
             assert!(!profile.layers.is_empty(), "{id} has no layers");
-            assert!(!profile.shallow_marker_label.is_empty(), "{id} shallow label");
+            assert!(
+                !profile.shallow_marker_label.is_empty(),
+                "{id} shallow label"
+            );
             assert!(!profile.deep_marker_label.is_empty(), "{id} deep label");
             assert!(!profile.citations.is_empty(), "{id} citations");
 
             for layer in profile.layers {
                 assert!(layer.thickness_m.value > 0.0, "{id} layer thickness");
-                assert!(layer.conductivity_w_per_m_k.value > 0.0, "{id} conductivity");
+                assert!(
+                    layer.conductivity_w_per_m_k.value > 0.0,
+                    "{id} conductivity"
+                );
                 assert!(layer.density_kg_per_m3.value > 0.0, "{id} density");
-                assert!(layer.specific_heat_j_per_kg_k.value > 0.0, "{id} specific heat");
+                assert!(
+                    layer.specific_heat_j_per_kg_k.value > 0.0,
+                    "{id} specific heat"
+                );
                 assert!(layer.perfusion_per_s.value >= 0.0, "{id} perfusion");
             }
 
@@ -1385,7 +1418,8 @@ mod tests {
         let base = [("temperatureC", 70.0), ("durationS", 15.0)];
         let options = [("interfaceMaterialId", "hydrogel")];
 
-        let without = simulate_heat_contact(&heat_contact(&base, &options), &fast_settings()).unwrap();
+        let without =
+            simulate_heat_contact(&heat_contact(&base, &options), &fast_settings()).unwrap();
         let with = simulate_heat_contact(
             &heat_contact(
                 &[

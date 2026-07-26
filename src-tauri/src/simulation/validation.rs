@@ -14,9 +14,7 @@ use super::model::{
     DEFAULT_DEVICE_MATERIAL_ID, DEFAULT_INTERFACE_MATERIAL_ID, DEFAULT_SKIN_PROFILE_ID,
     MODEL_VERSION,
 };
-use super::{
-    build_case, solve_case, SimulationContact, SolverSettings, ThermalSample,
-};
+use super::{build_case, solve_case, SimulationContact, SolverSettings, ThermalSample};
 
 const CASE_PMED: &str = include_str!("../../../benchmarks/heat/cases/pmed-forearm-cheps-10s.json");
 const CASE_MAYROVITZ: &str =
@@ -210,7 +208,10 @@ pub fn parse_measured_csv(raw: &str) -> Result<Vec<MeasuredSample>, String> {
         }
         let parts: Vec<&str> = trimmed.split(',').map(str::trim).collect();
         if parts.len() < 2 {
-            return Err(format!("CSV line {}: expected time_s,temperature_c", index + 1));
+            return Err(format!(
+                "CSV line {}: expected time_s,temperature_c",
+                index + 1
+            ));
         }
         if !saw_header
             && parts[0].eq_ignore_ascii_case("time_s")
@@ -315,10 +316,7 @@ fn resolve_conductance(
     Ok(network.total_w_per_m2_k)
 }
 
-fn predicted_quantity(
-    sample: &ThermalSample,
-    target: MeasurementTarget,
-) -> Result<f64, String> {
+fn predicted_quantity(sample: &ThermalSample, target: MeasurementTarget) -> Result<f64, String> {
     match target {
         MeasurementTarget::SkinSurface => Ok(sample.surface_temperature_c),
         MeasurementTarget::ThermodeInterface => Ok(sample.device_temperature_c),
@@ -409,9 +407,9 @@ pub fn compare_series(
         .filter(|(_, value)| value.is_finite())
         .max_by(|a, b| a.1.total_cmp(&b.1));
 
-    let peak_temperature_error_c = predicted_peak_time.map(|(_, peak)| peak - measured_peak.temperature_c);
-    let time_to_peak_error_s =
-        predicted_peak_time.map(|(time, _)| time - measured_peak.time_s);
+    let peak_temperature_error_c =
+        predicted_peak_time.map(|(_, peak)| peak - measured_peak.temperature_c);
+    let time_to_peak_error_s = predicted_peak_time.map(|(time, _)| time - measured_peak.time_s);
 
     Ok((
         comparison,
@@ -484,10 +482,8 @@ fn calibrate_contact_conductance(
     ];
     let mut best = None::<(f64, f64)>;
     for conductance in candidates {
-        let (predicted, _, _) =
-            run_case_prediction(manifest, settings, Some(conductance))?;
-        let (_, metrics) =
-            compare_series(measured, &predicted, manifest.measurement_target)?;
+        let (predicted, _, _) = run_case_prediction(manifest, settings, Some(conductance))?;
+        let (_, metrics) = compare_series(measured, &predicted, manifest.measurement_target)?;
         let rmse = metrics
             .rmse_c
             .ok_or_else(|| "Calibration comparison produced no RMSE".to_string())?;
@@ -533,7 +529,10 @@ fn evaluate_case(
             .any(|key| key == "contactConductanceWM2K")
         && locked_conductance.is_none()
     {
-        caveats.push("Hold-out case evaluated with default contact network (no calibration lock applied).".into());
+        caveats.push(
+            "Hold-out case evaluated with default contact network (no calibration lock applied)."
+                .into(),
+        );
     }
 
     let (predicted_series, peak_predicted_surface_c, used_conductance) =
@@ -581,8 +580,11 @@ fn evaluate_case(
     let csv = measured_csv.unwrap();
     let measured_series = parse_measured_csv(csv)?;
     let checksum = checksum_hex(csv);
-    let (comparison, metrics) =
-        compare_series(&measured_series, &predicted_series, manifest.measurement_target)?;
+    let (comparison, metrics) = compare_series(
+        &measured_series,
+        &predicted_series,
+        manifest.measurement_target,
+    )?;
     let peak_measured_c = measured_series
         .iter()
         .map(|sample| sample.temperature_c)
@@ -661,7 +663,9 @@ pub fn run_validation_suite(request: ValidationRequest) -> Result<ValidationSuit
     let mut cases = Vec::with_capacity(catalog.len());
     for (manifest, csv) in catalog {
         if manifest.split == ValidationSplit::Holdout
-            && manifest.calibratable_parameters.contains(&"contactConductanceWM2K".to_string())
+            && manifest
+                .calibratable_parameters
+                .contains(&"contactConductanceWM2K".to_string())
             && calibrated
         {
             // Hold-out consumes locked parameters only.
@@ -708,9 +712,12 @@ mod tests {
     fn comparison_metrics_are_finite() {
         let measured = parse_measured_csv(FIXTURE_CAL_CSV).unwrap();
         let manifest = parse_manifest(FIXTURE_CAL).unwrap();
-        let (predicted, _, _) =
-            run_case_prediction(&manifest, &ValidationRequest::default().settings, Some(250.0))
-                .unwrap();
+        let (predicted, _, _) = run_case_prediction(
+            &manifest,
+            &ValidationRequest::default().settings,
+            Some(250.0),
+        )
+        .unwrap();
         let (_, metrics) =
             compare_series(&measured, &predicted, MeasurementTarget::SkinSurface).unwrap();
         assert!(metrics.rmse_c.unwrap().is_finite());

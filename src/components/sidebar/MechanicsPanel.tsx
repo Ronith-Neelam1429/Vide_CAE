@@ -33,6 +33,7 @@ function formatCycles(n: number): string {
 }
 
 function IndentationChart({ contact }: { contact: MechContactResult }) {
+  const isCyclic = contact.inputs.loadingMode === "cyclic";
   return (
     <div className="results-chart" aria-label="Indentation over time">
       <ResponsiveContainer width="100%" height={200}>
@@ -41,7 +42,9 @@ function IndentationChart({ contact }: { contact: MechContactResult }) {
           margin={{ top: 12, right: 10, bottom: 2, left: -6 }}
         >
           <CartesianGrid stroke="#3d3d3d" strokeDasharray="3 3" />
-          <ReferenceArea x1={0} x2={contact.inputs.holdS} fill="#20b8ed" fillOpacity={0.06} />
+          {!isCyclic && (
+            <ReferenceArea x1={0} x2={contact.inputs.holdS} fill="#20b8ed" fillOpacity={0.06} />
+          )}
           <XAxis dataKey="timeS" type="number" unit=" s" {...AXIS} />
           <YAxis unit=" µm" width={54} {...AXIS} />
           <Tooltip
@@ -65,7 +68,9 @@ function IndentationChart({ contact }: { contact: MechContactResult }) {
         </LineChart>
       </ResponsiveContainer>
       <p className="results-chart__caption">
-        Shaded region is the load hold; the tail is viscoelastic recovery.
+        {isCyclic
+          ? `Load/unload extrema across ${formatCycles(contact.inputs.cycles)} cycles at ${contact.inputs.frequencyHz.toFixed(2)} Hz; large protocols are sampled, not downscaled.`
+          : "Shaded region is the load hold; the tail is viscoelastic recovery."}
       </p>
     </div>
   );
@@ -172,6 +177,27 @@ function ContactMech({ contact }: { contact: MechContactResult }) {
       </div>
 
       <IndentationChart contact={contact} />
+
+      {contact.inputs.loadingMode === "cyclic" && (
+        <div className="result-bounds">
+          <div className="result-bounds__title">Repeated loading protocol</div>
+          <div className="result-bounds__row">
+            <span>Load / recovery</span>
+            <code>{(contact.inputs.dutyCycle * 100).toFixed(0)}% / {((1 - contact.inputs.dutyCycle) * 100).toFixed(0)}% of cycle</code>
+          </div>
+          <div className="result-bounds__row">
+            <span>Retained preload</span>
+            <code>{(contact.inputs.minimumPressureFraction * 100).toFixed(0)}%</code>
+          </div>
+          <div className="result-bounds__row">
+            <span>Observed duration</span>
+            <code>{contact.inputs.simulatedDurationS.toFixed(1)} s</code>
+          </div>
+          <p className="result-note is-dim">
+            The waveform models viscoelastic load and recovery. Bone fatigue remains a separate screened Basquin–Miner estimate.
+          </p>
+        </div>
+      )}
 
       <div className="result-section">
         <div className="result-section__body" style={{ paddingTop: 8 }}>

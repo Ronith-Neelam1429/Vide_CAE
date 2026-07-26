@@ -103,8 +103,8 @@ fn case_step_surface_temperature() -> VerificationCase {
     let denominator = 2.0 * (alpha * duration_s).sqrt();
     let mut max_error: f64 = 0.0;
     for (index, cell) in state.mesh.cells.iter().enumerate() {
-        let analytic = surface_c
-            + (initial_c - surface_c) * super::solver::erf(cell.center_m / denominator);
+        let analytic =
+            surface_c + (initial_c - surface_c) * super::solver::erf(cell.center_m / denominator);
         max_error = max_error.max((state.temperature_c[index] - analytic).abs());
     }
 
@@ -165,7 +165,8 @@ fn case_constant_surface_flux() -> VerificationCase {
     for (index, cell) in state.mesh.cells.iter().enumerate() {
         let eta = cell.center_m / (2.0 * root);
         let analytic = initial_c
-            + (2.0 * flux / conductivity) * (root / std::f64::consts::PI.sqrt())
+            + (2.0 * flux / conductivity)
+                * (root / std::f64::consts::PI.sqrt())
                 * (-eta * eta).exp()
             - (flux * cell.center_m / conductivity) * erfc(eta);
         max_error = max_error.max((state.temperature_c[index] - analytic).abs());
