@@ -465,7 +465,14 @@ fn simulate_mechanics_contact(
             let comp =
                 layer_compression_um(depth_m, thickness_m, a_m, stress_pa, &props, hold_s, None);
             let yld = elastic_top > props.yield_strain;
-            let residual = if yld { (elastic_top - props.yield_strain).max(0.0) } else { 0.0 };
+            // Cap the permanent set at rupture: the small-strain model is not
+            // meaningful past the ultimate strain (the layer has failed).
+            let capped_elastic = elastic_top.min(props.ultimate_strain);
+            let residual = if yld {
+                (capped_elastic - props.yield_strain).max(0.0)
+            } else {
+                0.0
+            };
             if elastic_top > props.ultimate_strain {
                 warnings.push(format!(
                     "{}: strain {:.0}% exceeds the ultimate strain — rupture likely.",
