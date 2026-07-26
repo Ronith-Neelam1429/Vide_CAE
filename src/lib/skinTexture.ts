@@ -1,7 +1,6 @@
 import {
   CanvasTexture,
   LinearMipmapLinearFilter,
-  NearestFilter,
   RepeatWrapping,
   SRGBColorSpace,
 } from "three";
@@ -39,98 +38,148 @@ function fbm(x: number, y: number): number {
   return value;
 }
 
+/** Ridged noise for vein/tendon-like streaks. */
+function ridged(x: number, y: number): number {
+  return 1 - Math.abs(2 * fbm(x, y) - 1);
+}
+
 export type SkinMaps = {
   map: CanvasTexture;
   roughnessMap: CanvasTexture;
+  normalMap: CanvasTexture;
   dispose: () => void;
 };
 
-/** Procedural light skin maps — tonal variation + soft pore noise, no external assets. */
-export function createSkinMaps(resolution = 512): SkinMaps {
+/**
+ * Procedural skin maps generated at runtime (no external, license-encumbered
+ * assets): a warm tone with mottling, freckles, and faint sub-dermal veins,
+ * plus a matching roughness map and a normal map derived from a height field so
+ * pores, veins and tendons catch the light. Designed to read as real skin under
+ * a physical material with a warm back light.
+ */
+export function createSkinMaps(resolution = 1024): SkinMaps {
   const colorCanvas = document.createElement("canvas");
   colorCanvas.width = resolution;
   colorCanvas.height = resolution;
   const colorCtx = colorCanvas.getContext("2d", { willReadFrequently: true });
-  if (!colorCtx) {
-    throw new Error("Could not create skin color canvas.");
-  }
-
   const roughCanvas = document.createElement("canvas");
   roughCanvas.width = resolution;
   roughCanvas.height = resolution;
   const roughCtx = roughCanvas.getContext("2d", { willReadFrequently: true });
-  if (!roughCtx) {
-    throw new Error("Could not create skin roughness canvas.");
+  const normalCanvas = document.createElement("canvas");
+  normalCanvas.width = resolution;
+  normalCanvas.height = resolution;
+  const normalCtx = normalCanvas.getContext("2d", { willReadFrequently: true });
+  if (!colorCtx || !roughCtx || !normalCtx) {
+    throw new Error("Could not create skin texture canvases.");
   }
 
   const colorData = colorCtx.createImageData(resolution, resolution);
   const roughData = roughCtx.createImageData(resolution, resolution);
+  const height = new Float32Array(resolution * resolution);
 
   for (let y = 0; y < resolution; y += 1) {
     for (let x = 0; x < resolution; x += 1) {
       const u = x / resolution;
       const v = y / resolution;
       const i = (y * resolution + x) * 4;
+      const h = y * resolution + x;
 
       const blotch = fbm(u * 4.2, v * 4.2);
-      const fine = fbm(u * 28, v * 28);
-      const vein = fbm(u * 2.1 + 8, v * 2.4 - 3);
+      const fine = fbm(u * 34, v * 34);
+      const pores = fbm(u * 130, v * 130);
+      // Veins run mostly lengthwise; stretch the domain so they streak along U.
+      const veinField = ridged(u * 2.4 + 8, v * 7.5 - 3);
+      const vein = Math.pow(Math.max(0, veinField - 0.72) / 0.28, 1.5);
 
-      // Warm Caucasian-leaning research-demo tone with local variation.
-      const r = 214 + blotch * 28 + fine * 10 - vein * 8;
-      const g = 168 + blotch * 18 + fine * 8 - vein * 4;
-      const b = 142 + blotch * 12 + fine * 6 + vein * 10;
+      // Warm skin tone with local mottling.
+      let r = 222 + blotch * 24 + fine * 8 - pores * 6;
+      let g = 176 + blotch * 16 + fine * 6 - pores * 5;
+      let b = 150 + blotch * 12 + fine * 5 - pores * 4;
+
+      // Bluish veins tint the color slightly cooler and darker.
+      r -= vein * 42;
+      g -= vein * 26;
+      b += vein * 14;
 
       colorData.data[i] = Math.min(255, Math.max(0, r));
       colorData.data[i + 1] = Math.min(255, Math.max(0, g));
       colorData.data[i + 2] = Math.min(255, Math.max(0, b));
       colorData.data[i + 3] = 255;
 
-      const roughness = 150 + fine * 55 + blotch * 20;
-      const rv = Math.min(255, Math.max(90, roughness));
+      const roughness = 150 + pores * 60 + fine * 25 - vein * 20;
+      const rv = Math.min(235, Math.max(90, roughness));
       roughData.data[i] = rv;
       roughData.data[i + 1] = rv;
       roughData.data[i + 2] = rv;
       roughData.data[i + 3] = 255;
+
+      // Height for the normal map: fine pore detail plus raised veins.
+      height[h] = fine * 0.5 + pores * 0.3 + vein * 0.9;
     }
   }
 
   colorCtx.putImageData(colorData, 0, 0);
   roughCtx.putImageData(roughData, 0, 0);
 
-  // Soft freckle / pore speckles.
-  for (let n = 0; n < 1800; n += 1) {
+  // Freckle / pore speckles on top of the base color.
+  for (let n = 0; n < 2600; n += 1) {
     const x = Math.random() * resolution;
     const y = Math.random() * resolution;
-    const radius = 0.4 + Math.random() * 1.2;
-    const alpha = 0.04 + Math.random() * 0.08;
+    const radius = 0.4 + Math.random() * 1.3;
+    const alpha = 0.03 + Math.random() * 0.07;
     colorCtx.fillStyle = `rgba(120, 70, 50, ${alpha})`;
     colorCtx.beginPath();
     colorCtx.arc(x, y, radius, 0, Math.PI * 2);
     colorCtx.fill();
   }
 
-  const map = new CanvasTexture(colorCanvas);
-  map.colorSpace = SRGBColorSpace;
-  map.wrapS = RepeatWrapping;
-  map.wrapT = RepeatWrapping;
-  map.anisotropy = 8;
-  map.minFilter = LinearMipmapLinearFilter;
-  map.magFilter = NearestFilter;
-  map.needsUpdate = true;
+  // Derive a tangent-space normal map from the height field.
+  const normalData = normalCtx.createImageData(resolution, resolution);
+  const strength = 2.2;
+  const at = (x: number, y: number) => {
+    const xi = (x + resolution) % resolution;
+    const yi = (y + resolution) % resolution;
+    return height[yi * resolution + xi];
+  };
+  for (let y = 0; y < resolution; y += 1) {
+    for (let x = 0; x < resolution; x += 1) {
+      const i = (y * resolution + x) * 4;
+      const dx = (at(x - 1, y) - at(x + 1, y)) * strength;
+      const dy = (at(x, y - 1) - at(x, y + 1)) * strength;
+      const nz = 1.0;
+      const len = Math.hypot(dx, dy, nz) || 1;
+      normalData.data[i] = Math.round(((dx / len) * 0.5 + 0.5) * 255);
+      normalData.data[i + 1] = Math.round(((dy / len) * 0.5 + 0.5) * 255);
+      normalData.data[i + 2] = Math.round(((nz / len) * 0.5 + 0.5) * 255);
+      normalData.data[i + 3] = 255;
+    }
+  }
+  normalCtx.putImageData(normalData, 0, 0);
 
-  const roughnessMap = new CanvasTexture(roughCanvas);
-  roughnessMap.wrapS = RepeatWrapping;
-  roughnessMap.wrapT = RepeatWrapping;
-  roughnessMap.anisotropy = 4;
-  roughnessMap.needsUpdate = true;
+  const finish = (canvas: HTMLCanvasElement, srgb: boolean) => {
+    const tex = new CanvasTexture(canvas);
+    if (srgb) tex.colorSpace = SRGBColorSpace;
+    tex.wrapS = RepeatWrapping;
+    tex.wrapT = RepeatWrapping;
+    tex.anisotropy = 8;
+    tex.minFilter = LinearMipmapLinearFilter;
+    tex.needsUpdate = true;
+    return tex;
+  };
+
+  const map = finish(colorCanvas, true);
+  const roughnessMap = finish(roughCanvas, false);
+  const normalMap = finish(normalCanvas, false);
 
   return {
     map,
     roughnessMap,
+    normalMap,
     dispose: () => {
       map.dispose();
       roughnessMap.dispose();
+      normalMap.dispose();
     },
   };
 }

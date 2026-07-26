@@ -4,6 +4,7 @@ use simulation::model::{
     DamageModel, DeviceMaterial, InterfaceMaterial, SkinProfile, DAMAGE_MODELS, DEVICE_MATERIALS,
     INTERFACE_MATERIALS, SKIN_PROFILES,
 };
+use simulation::mechanics::{run_mechanics_simulation, MechanicsResponse};
 use simulation::verification::VerificationSuite;
 use simulation::{run_heat_simulation, SimulationRequest, SimulationResponse};
 
@@ -15,6 +16,12 @@ fn greet(name: &str) -> String {
 #[tauri::command]
 fn run_simulation(request: SimulationRequest) -> Result<SimulationResponse, String> {
     run_heat_simulation(request)
+}
+
+/// Run the mechanical (pressure/compression/fatigue) solver on pressure contacts.
+#[tauri::command]
+fn run_mechanics(request: SimulationRequest) -> Result<MechanicsResponse, String> {
+    run_mechanics_simulation(request)
 }
 
 /// Run the analytic verification suite on demand, so the user can confirm the
@@ -54,6 +61,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             run_simulation,
+            run_mechanics,
             verify_solver,
             model_catalog
         ])

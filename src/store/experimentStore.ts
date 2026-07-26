@@ -10,6 +10,7 @@ import {
   type SolverPresetId,
   type VerificationSuite,
 } from "../lib/simulation";
+import { runMechanics, type MechanicsResult } from "../lib/mechanics";
 import {
   defaultOptionsFor,
   defaultParametersFor,
@@ -70,14 +71,23 @@ type ExperimentState = {
   simulationResult: SimulationResult | null;
   simulationStatus: "idle" | "running" | "complete" | "error";
   simulationError: string | null;
+  mechanicsResult: MechanicsResult | null;
   solverPreset: SolverPresetId;
   catalog: ModelCatalog | null;
   verification: VerificationSuite | null;
   verificationStatus: "idle" | "running" | "complete" | "error";
   isImporting: boolean;
   importError: string | null;
+  /** Reveal the internal tissue layers and bone of the forearm model. */
+  showAnatomy: boolean;
+  /** Timeline position (seconds) used to animate the simulated response. */
+  playbackTimeS: number;
+  isPlaying: boolean;
 
   setTool: (tool: ToolMode) => void;
+  toggleAnatomy: () => void;
+  setPlaybackTime: (timeS: number) => void;
+  setPlaying: (value: boolean) => void;
   setSidebarTab: (tab: SidebarTab) => void;
   setImporting: (value: boolean) => void;
   setImportError: (message: string | null) => void;
@@ -146,14 +156,21 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
   simulationResult: null,
   simulationStatus: "idle",
   simulationError: null,
+  mechanicsResult: null,
   solverPreset: "balanced",
   catalog: null,
   verification: null,
   verificationStatus: "idle",
   isImporting: false,
   importError: null,
+  showAnatomy: false,
+  playbackTimeS: 0,
+  isPlaying: false,
 
   setTool: (tool) => set({ tool }),
+  toggleAnatomy: () => set((state) => ({ showAnatomy: !state.showAnatomy })),
+  setPlaybackTime: (playbackTimeS) => set({ playbackTimeS }),
+  setPlaying: (isPlaying) => set({ isPlaying }),
   setSidebarTab: (sidebarTab) => set({ sidebarTab }),
   setImporting: (isImporting) => set({ isImporting }),
   setImportError: (importError) => set({ importError }),
@@ -171,6 +188,7 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       assignments: [],
       selectedContactId: null,
       simulationResult: null,
+      mechanicsResult: null,
       simulationStatus: "idle",
       simulationError: null,
       importError: null,
@@ -187,6 +205,7 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       assignments: [],
       selectedContactId: null,
       simulationResult: null,
+      mechanicsResult: null,
       simulationStatus: "idle",
       simulationError: null,
       sidebarTab: "design",
@@ -418,21 +437,39 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       return;
     }
 
+    const stimulusFor = (contactId: string) =>
+      state.assignments.find((a) => a.contactPointId === contactId)?.stimulusType;
+    const heatContacts = state.contactPoints.filter(
+      (c) => stimulusFor(c.id) === "heat",
+    );
+    const pressureContacts = state.contactPoints.filter(
+      (c) => stimulusFor(c.id) === "pressure",
+    );
+
     set({
       simulationStatus: "running",
       simulationError: null,
       simulationResult: null,
+      mechanicsResult: null,
+      playbackTimeS: 0,
+      isPlaying: false,
       sidebarTab: "results",
     });
 
+    const settings = SOLVER_PRESETS[state.solverPreset].settings;
+
     try {
-      const simulationResult = await runSimulation(
-        state.contactPoints,
-        state.assignments,
-        SOLVER_PRESETS[state.solverPreset].settings,
-      );
+      const [simulationResult, mechanicsResult] = await Promise.all([
+        heatContacts.length > 0
+          ? runSimulation(heatContacts, state.assignments, settings)
+          : Promise.resolve(null),
+        pressureContacts.length > 0
+          ? runMechanics(pressureContacts, state.assignments, settings)
+          : Promise.resolve(null),
+      ]);
       set({
         simulationResult,
+        mechanicsResult,
         simulationStatus: "complete",
         simulationError: null,
         sidebarTab: "results",
@@ -445,7 +482,7 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
             ? error
             : error instanceof Error
               ? error.message
-              : "The heat simulation could not be completed.",
+              : "The simulation could not be completed.",
       });
     }
   },
@@ -453,8 +490,11 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
   clearSimulation: () =>
     set({
       simulationResult: null,
+      mechanicsResult: null,
       simulationStatus: "idle",
       simulationError: null,
+      isPlaying: false,
+      playbackTimeS: 0,
     }),
 
   getExperimentDefinition: () => {

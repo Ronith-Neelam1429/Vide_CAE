@@ -19,10 +19,13 @@ import {
   SOLVER_PRESETS,
   type ConvergenceReport,
   type HeatContactResult,
+  type ResultSummary,
   type SolverPresetId,
   type VerificationSuite,
 } from "../../lib/simulation";
 import { useExperimentStore } from "../../store/experimentStore";
+import { MechanicsPanel } from "./MechanicsPanel";
+import { PlaybackTimeline } from "./PlaybackTimeline";
 
 function formatSeconds(value: number | null) {
   return value === null ? "Not reached" : `${value.toFixed(2)} s`;
@@ -32,6 +35,22 @@ function formatOmega(value: number) {
   if (value === 0) return "0";
   if (value < 0.001 || value >= 1000) return value.toExponential(2);
   return value.toFixed(3);
+}
+
+/** Compact form of a depth-marker label for tight chart annotations. */
+function shortMarker(label: string): string {
+  const beforeParen = label.split("(")[0].trim();
+  const base = beforeParen.length > 0 ? beforeParen : label;
+  return base.length > 16 ? `${base.slice(0, 15)}…` : base;
+}
+
+type RiskTone = "ok" | "warn" | "bad";
+
+/** At-a-glance severity, so the headline reads before any chart is expanded. */
+function riskTone(summary: ResultSummary): RiskTone {
+  if (summary.omegaDermalBase >= 1 || summary.omegaBasal >= 1) return "bad";
+  if (summary.omegaBasal >= 0.53 || summary.peakBasalTemperatureC >= 44) return "warn";
+  return "ok";
 }
 
 function Section({
@@ -103,6 +122,8 @@ const AXIS = {
 
 function TimeChart({ contact }: { contact: HeatContactResult }) {
   const showDevice = contact.inputs.deviceControl !== "ideal (setpoint held)";
+  const shallowLabel = shortMarker(contact.skinProfile.shallowMarkerLabel);
+  const deepLabel = shortMarker(contact.skinProfile.deepMarkerLabel);
 
   return (
     <div className="results-chart" aria-label={`${contact.label} temperature over time`}>
@@ -153,7 +174,7 @@ function TimeChart({ contact }: { contact: HeatContactResult }) {
             isAnimationActive={false}
           />
           <Line
-            name="Basal layer"
+            name={shallowLabel}
             type="monotone"
             dataKey="basalTemperatureC"
             stroke="#f08c69"
@@ -162,7 +183,7 @@ function TimeChart({ contact }: { contact: HeatContactResult }) {
             isAnimationActive={false}
           />
           <Line
-            name="Dermal base"
+            name={deepLabel}
             type="monotone"
             dataKey="dermalBaseTemperatureC"
             stroke="#8fbf6a"
@@ -185,11 +206,11 @@ function TimeChart({ contact }: { contact: HeatContactResult }) {
         </span>
         <span>
           <i style={{ background: "#f08c69" }} />
-          Basal
+          {shallowLabel}
         </span>
         <span>
           <i style={{ background: "#8fbf6a" }} />
-          Dermal base
+          {deepLabel}
         </span>
       </div>
       {contact.inputs.postExposureS > 0 && (
@@ -240,14 +261,24 @@ function DepthChart({ contact }: { contact: HeatContactResult }) {
             x={contact.summary.basalDepthMm}
             stroke="#f08c69"
             strokeDasharray="3 3"
-            label={{ value: "basal", fill: "#f08c69", fontSize: 9, position: "top" }}
+            label={{
+              value: shortMarker(contact.skinProfile.shallowMarkerLabel),
+              fill: "#f08c69",
+              fontSize: 9,
+              position: "top",
+            }}
           />
           <ReferenceLine
             yAxisId="temp"
             x={contact.summary.dermalBaseDepthMm}
             stroke="#8fbf6a"
             strokeDasharray="3 3"
-            label={{ value: "dermis", fill: "#8fbf6a", fontSize: 9, position: "top" }}
+            label={{
+              value: shortMarker(contact.skinProfile.deepMarkerLabel),
+              fill: "#8fbf6a",
+              fontSize: 9,
+              position: "top",
+            }}
           />
           {hasDamage && (
             <ReferenceLine
@@ -384,12 +415,40 @@ function ConvergencePanel({ report }: { report: ConvergenceReport }) {
 function ContactResult({ contact }: { contact: HeatContactResult }) {
   const [chart, setChart] = useState<"time" | "depth">("time");
   const { summary, bounds, dimensionality, energy } = contact;
+  const tone = riskTone(summary);
+  const toneLabel =
+    tone === "bad" ? "High" : tone === "warn" ? "Elevated" : "Low";
 
   return (
     <article className="result-card">
       <div className="result-card__header">
         <strong>{contact.label}</strong>
         <span>{summary.riskClassification}</span>
+      </div>
+
+      <div className={`result-headline is-${tone}`}>
+        <div className="result-headline__risk">
+          <span className="result-headline__risk-label">Injury risk</span>
+          <span className={`result-badge is-${tone}`}>{toneLabel}</span>
+        </div>
+        <div className="result-headline__metrics">
+          <div>
+            <span>Peak surface</span>
+            <strong>{summary.peakSurfaceTemperatureC.toFixed(1)} °C</strong>
+          </div>
+          <div>
+            <span>Peak {shortMarker(contact.skinProfile.shallowMarkerLabel)}</span>
+            <strong>{summary.peakBasalTemperatureC.toFixed(1)} °C</strong>
+          </div>
+          <div>
+            <span>Time to 44 °C</span>
+            <strong>{formatSeconds(summary.timeTo44cS)}</strong>
+          </div>
+          <div>
+            <span>Damage Ω</span>
+            <strong>{formatOmega(summary.omegaBasal)}</strong>
+          </div>
+        </div>
       </div>
 
       <div className="results-chart-tabs">
@@ -421,19 +480,25 @@ function ContactResult({ contact }: { contact: HeatContactResult }) {
           <dd>{summary.peakSurfaceTemperatureC.toFixed(2)} °C</dd>
         </div>
         <div>
-          <dt>Peak basal ({summary.basalDepthMm.toFixed(3)} mm)</dt>
+          <dt>
+            Peak {contact.skinProfile.shallowMarkerLabel} (
+            {summary.basalDepthMm.toFixed(3)} mm)
+          </dt>
           <dd>{summary.peakBasalTemperatureC.toFixed(2)} °C</dd>
         </div>
         <div>
-          <dt>Peak dermal base</dt>
+          <dt>
+            Peak {contact.skinProfile.deepMarkerLabel} (
+            {summary.dermalBaseDepthMm.toFixed(3)} mm)
+          </dt>
           <dd>{summary.peakDermalBaseTemperatureC.toFixed(2)} °C</dd>
         </div>
         <div>
-          <dt>Time to 44 °C basal</dt>
+          <dt>Time to 44 °C at {shortMarker(contact.skinProfile.shallowMarkerLabel)}</dt>
           <dd>{formatSeconds(summary.timeTo44cS)}</dd>
         </div>
         <div>
-          <dt>Damage Ω basal</dt>
+          <dt>Damage Ω at {shortMarker(contact.skinProfile.shallowMarkerLabel)}</dt>
           <dd>{formatOmega(summary.omegaBasal)}</dd>
         </div>
         <div>
@@ -460,7 +525,8 @@ function ContactResult({ contact }: { contact: HeatContactResult }) {
 
       <div className="result-bounds">
         <div className="result-bounds__title">
-          Peak basal temperature, with uncertainty
+          Peak {shortMarker(contact.skinProfile.shallowMarkerLabel)} temperature,
+          with uncertainty
         </div>
         <div className="result-bounds__value">
           {bounds.nominalPeakBasalC.toFixed(2)} °C
@@ -663,6 +729,7 @@ function ContactResult({ contact }: { contact: HeatContactResult }) {
 
 export function ResultsPanel() {
   const result = useExperimentStore((s) => s.simulationResult);
+  const mechanics = useExperimentStore((s) => s.mechanicsResult);
   const status = useExperimentStore((s) => s.simulationStatus);
   const error = useExperimentStore((s) => s.simulationError);
   const run = useExperimentStore((s) => s.runSimulation);
@@ -671,6 +738,15 @@ export function ResultsPanel() {
   const solverPreset = useExperimentStore((s) => s.solverPreset);
   const setSolverPreset = useExperimentStore((s) => s.setSolverPreset);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const hasThermal = !!result && result.contacts.length > 0;
+  const hasMech = !!mechanics && mechanics.contacts.length > 0;
+  const [view, setView] = useState<"thermal" | "mechanical">("thermal");
+
+  useEffect(() => {
+    if (hasMech && !hasThermal) setView("mechanical");
+    else if (hasThermal && !hasMech) setView("thermal");
+  }, [hasThermal, hasMech]);
 
   useEffect(() => {
     if (!result) {
@@ -692,6 +768,22 @@ export function ResultsPanel() {
       null,
     [result, selectedId],
   );
+
+  const thermalDuration = useMemo(() => {
+    if (!result) return 0;
+    return result.contacts.reduce((max, c) => {
+      const last = c.series[c.series.length - 1]?.timeS ?? 0;
+      return Math.max(max, last);
+    }, 0);
+  }, [result]);
+
+  const mechDuration = useMemo(() => {
+    if (!mechanics) return 0;
+    return mechanics.contacts.reduce((max, c) => {
+      const last = c.indentationSeries[c.indentationSeries.length - 1]?.timeS ?? 0;
+      return Math.max(max, last);
+    }, 0);
+  }, [mechanics]);
 
   return (
     <div className="results-panel">
@@ -720,9 +812,9 @@ export function ResultsPanel() {
           disabled={status === "running" || contacts.length === 0}
           onClick={() => void run()}
         >
-          {status === "running" ? "Running heat model…" : "Run heat simulation"}
+          {status === "running" ? "Solving…" : "Run simulation"}
         </button>
-        {result && (
+        {(hasThermal || hasMech) && (
           <button type="button" className="sidebar__btn" onClick={clear}>
             Clear run
           </button>
@@ -735,25 +827,59 @@ export function ResultsPanel() {
         </div>
       )}
 
-      {!result && status !== "running" && !error && (
+      {!hasThermal && !hasMech && status !== "running" && !error && (
         <div className="sidebar__empty">
           <div className="sidebar__empty-title">No simulation results</div>
           <p className="sidebar__empty-copy">
-            Run the heat model for your assigned Heat contacts. Cold, electrical
-            and pressure models are not implemented.
+            Assign a Heat or Pressure stimulus to your contacts and run. Cold and
+            electrical models are not implemented yet.
           </p>
         </div>
       )}
 
       {status === "running" && (
         <div className="results-panel__running">
-          Solving the layered tissue response, then refining the mesh to check
-          the answer does not depend on it…
+          Solving the layered tissue response…
         </div>
       )}
 
-      {result && (
+      {hasThermal && hasMech && (
+        <div className="results-view-tabs" role="tablist" aria-label="Result type">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "thermal"}
+            className={`results-view-tab${view === "thermal" ? " is-active" : ""}`}
+            onClick={() => setView("thermal")}
+          >
+            Thermal
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "mechanical"}
+            className={`results-view-tab${view === "mechanical" ? " is-active" : ""}`}
+            onClick={() => setView("mechanical")}
+          >
+            Mechanical
+          </button>
+        </div>
+      )}
+
+      {hasMech && view === "mechanical" && (
         <>
+          {mechDuration > 0 && (
+            <PlaybackTimeline durationS={mechDuration} label="Indentation over time" />
+          )}
+          <MechanicsPanel result={mechanics!} />
+        </>
+      )}
+
+      {hasThermal && view === "thermal" && result && (
+        <>
+          {thermalDuration > 0 && (
+            <PlaybackTimeline durationS={thermalDuration} label="Skin temperature over time" />
+          )}
           <div className="results-panel__toolbar">
             <span className="results-panel__run-label">
               {result.contacts.length} heat contact

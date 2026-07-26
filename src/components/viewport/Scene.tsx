@@ -10,8 +10,8 @@ import {
 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { useExperimentStore } from "../../store/experimentStore";
+import { ArmModel } from "./ArmModel";
 import { ImportedDesign } from "./ImportedDesign";
-import { SkinSurface } from "./SkinSurface";
 import { usePlaneDrag } from "./usePlaneDrag";
 
 function CameraSetup() {
@@ -137,11 +137,12 @@ export function Scene() {
     <>
       <CameraSetup />
 
-      <ambientLight intensity={0.5} />
-      <hemisphereLight args={["#f0e6dc", "#2a2a2a", 0.35]} />
+      <ambientLight intensity={0.4} />
+      <hemisphereLight args={["#f3e8dc", "#2a2622", 0.4]} />
       <directionalLight
         position={[6, 10, 4]}
-        intensity={1.2}
+        intensity={1.15}
+        color="#fff4ea"
         castShadow
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
@@ -151,8 +152,11 @@ export function Scene() {
         shadow-camera-right={8}
         shadow-camera-top={8}
         shadow-camera-bottom={-8}
+        shadow-bias={-0.0004}
       />
-      <directionalLight position={[-5, 4, -3]} intensity={0.28} color="#ffd8c8" />
+      {/* Warm back/rim light gives skin a subsurface-like glow at the edges. */}
+      <directionalLight position={[-6, 3, -5]} intensity={0.55} color="#ff9d6f" />
+      <pointLight position={[0, 3.5, 3]} intensity={0.35} color="#ffd9c2" distance={16} />
 
       <Grid
         infiniteGrid
@@ -167,7 +171,7 @@ export function Scene() {
         position={[0, -0.001, 0]}
       />
 
-      <SkinSurface />
+      <ArmModel />
       <PlaceholderCube />
       <ImportedDesign />
       <CadControls />

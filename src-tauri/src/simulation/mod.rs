@@ -7,6 +7,7 @@
 //! data, and nothing it produces is clinical advice.
 
 pub mod contact;
+pub mod mechanics;
 pub mod model;
 pub mod solver;
 pub mod verification;
@@ -64,11 +65,11 @@ impl SimulationContact {
         self.parameters.get(key).copied().filter(|v| v.is_finite())
     }
 
-    fn number_or(&self, key: &str, fallback: f64) -> f64 {
+    pub(crate) fn number_or(&self, key: &str, fallback: f64) -> f64 {
         self.number(key).unwrap_or(fallback)
     }
 
-    fn text<'a>(&'a self, key: &str, fallback: &'a str) -> &'a str {
+    pub(crate) fn text<'a>(&'a self, key: &str, fallback: &'a str) -> &'a str {
         self.options
             .get(key)
             .map(String::as_str)
@@ -1308,6 +1309,72 @@ mod tests {
         let palm = simulate_heat_contact(&palm, &fast_settings()).unwrap();
 
         assert!(palm.summary.peak_basal_temperature_c < forearm.summary.peak_basal_temperature_c);
+    }
+
+    #[test]
+    fn organic_tissue_profiles_resolve_and_simulate() {
+        // Every non-skin tissue must be a well-formed layered stack that runs
+        // through the same solver without producing non-finite results.
+        for id in [
+            "cortical-bone",
+            "scalp-hair",
+            "articular-cartilage",
+            "cell-membrane",
+        ] {
+            let profile = skin_profile(id).unwrap_or_else(|| panic!("missing profile {id}"));
+            assert!(!profile.layers.is_empty(), "{id} has no layers");
+            assert!(!profile.shallow_marker_label.is_empty(), "{id} shallow label");
+            assert!(!profile.deep_marker_label.is_empty(), "{id} deep label");
+            assert!(!profile.citations.is_empty(), "{id} citations");
+
+            for layer in profile.layers {
+                assert!(layer.thickness_m.value > 0.0, "{id} layer thickness");
+                assert!(layer.conductivity_w_per_m_k.value > 0.0, "{id} conductivity");
+                assert!(layer.density_kg_per_m3.value > 0.0, "{id} density");
+                assert!(layer.specific_heat_j_per_kg_k.value > 0.0, "{id} specific heat");
+                assert!(layer.perfusion_per_s.value >= 0.0, "{id} perfusion");
+            }
+
+            let contact = heat_contact(
+                &[("temperatureC", 55.0), ("durationS", 10.0)],
+                &[("skinProfileId", id)],
+            );
+            let result = simulate_heat_contact(&contact, &fast_settings())
+                .unwrap_or_else(|e| panic!("{id} failed to simulate: {e}"));
+
+            assert!(
+                result.summary.peak_surface_temperature_c.is_finite(),
+                "{id} non-finite surface temperature"
+            );
+            assert!(
+                result.summary.peak_basal_temperature_c
+                    >= result.inputs.baseline_skin_temperature_c - 1.0,
+                "{id} basal temperature below baseline"
+            );
+            assert!(result.energy.balanced, "{id} energy ledger did not close");
+        }
+    }
+
+    #[test]
+    fn bone_conducts_heat_deeper_than_insulating_hair() {
+        // Bone (k ~ 0.3) with almost no perfusion should let the deep marker
+        // heat more than the air-filled hair canopy does for the same contact.
+        let parameters = [("temperatureC", 60.0), ("durationS", 30.0)];
+        let bone = simulate_heat_contact(
+            &heat_contact(&parameters, &[("skinProfileId", "cortical-bone")]),
+            &fast_settings(),
+        )
+        .unwrap();
+        let scalp = simulate_heat_contact(
+            &heat_contact(&parameters, &[("skinProfileId", "scalp-hair")]),
+            &fast_settings(),
+        )
+        .unwrap();
+
+        assert!(
+            scalp.summary.peak_surface_temperature_c > bone.summary.peak_surface_temperature_c,
+            "the insulating hair canopy should run a hotter surface than bare-boned skin"
+        );
     }
 
     #[test]

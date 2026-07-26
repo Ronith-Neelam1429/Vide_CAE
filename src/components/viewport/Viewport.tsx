@@ -8,6 +8,8 @@ export function Viewport() {
   const design = useExperimentStore((s) => s.design);
   const tool = useExperimentStore((s) => s.tool);
   const contactCount = useExperimentStore((s) => s.contactPoints.length);
+  const showAnatomy = useExperimentStore((s) => s.showAnatomy);
+  const toggleAnatomy = useExperimentStore((s) => s.toggleAnatomy);
 
   useEffect(() => {
     const el = paneRef.current;
@@ -44,8 +46,16 @@ export function Viewport() {
         <div className="viewport-overlay__coords">
           {design
             ? `${design.fileName}${contactCount ? ` · ${contactCount} CP` : ""}`
-            : "Skin patch · 4 × 4"}
+            : "Forearm · skin over radius & ulna"}
         </div>
+
+        <button
+          type="button"
+          className={`viewport-toggle${showAnatomy ? " is-active" : ""}`}
+          onClick={toggleAnatomy}
+        >
+          {showAnatomy ? "Hide anatomy" : "Show anatomy"}
+        </button>
         <div className="viewport-overlay__hint">
           {design && tool === "contact" ? (
             <>

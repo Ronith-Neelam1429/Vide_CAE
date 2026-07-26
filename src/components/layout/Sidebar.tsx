@@ -1,3 +1,4 @@
+import { DESIGN_PRESETS, makePresetDesign } from "../../lib/designPresets";
 import { importDesignFromDisk } from "../../lib/importDesign";
 import {
   useExperimentStore,
@@ -28,6 +29,7 @@ function DesignPanel() {
   const resetTransform = useExperimentStore((s) => s.resetTransform);
   const setSidebarTab = useExperimentStore((s) => s.setSidebarTab);
   const setTool = useExperimentStore((s) => s.setTool);
+  const setDesign = useExperimentStore((s) => s.setDesign);
 
   return (
     <>
@@ -57,6 +59,24 @@ function DesignPanel() {
           {importError}
         </div>
       )}
+
+      <div className="sidebar__section-label" style={{ paddingLeft: 0, marginTop: 12 }}>
+        Arm-worn presets
+      </div>
+      <div className="sidebar__actions">
+        {DESIGN_PRESETS.map((preset) => (
+          <button
+            key={preset.id}
+            type="button"
+            className="preset-btn"
+            title={preset.description}
+            onClick={() => setDesign(makePresetDesign(preset))}
+          >
+            <span className="preset-btn__label">{preset.label}</span>
+            <span className="preset-btn__desc">{preset.description}</span>
+          </button>
+        ))}
+      </div>
 
       {design ? (
         <>

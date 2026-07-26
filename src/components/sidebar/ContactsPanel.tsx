@@ -75,9 +75,7 @@ export function ContactsPanel() {
               disabled={simulationStatus === "running"}
               onClick={() => void runSimulation()}
             >
-              {simulationStatus === "running"
-                ? "Running heat model…"
-                : "Run heat simulation"}
+              {simulationStatus === "running" ? "Solving…" : "Run simulation"}
             </button>
             <button
               type="button"
