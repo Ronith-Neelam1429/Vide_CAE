@@ -30,6 +30,7 @@
       "perfusionSteepnessC": 1.2
     },
     "options": {
+      "solverDimension": "1d",
       "skinProfileId": "volar-forearm",
       "interfaceMaterialId": "dry-contact",
       "deviceMaterialId": "aluminium-6061",

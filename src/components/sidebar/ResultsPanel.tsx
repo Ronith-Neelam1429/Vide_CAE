@@ -702,6 +702,17 @@ function ContactResult({ contact }: { contact: HeatContactResult }) {
               <dd>{contact.contact.method}</dd>
             </div>
             <div>
+              <dt>Solver</dt>
+              <dd>
+                {contact.solver.solverDimensionRequested === "auto"
+                  ? `Auto → ${contact.solver.solverDimension}`
+                  : contact.solver.solverDimension}
+                {contact.solver.radialDomainMm != null
+                  ? ` · r ≤ ${contact.solver.radialDomainMm.toFixed(0)} mm`
+                  : ""}
+              </dd>
+            </div>
+            <div>
               <dt>Mesh</dt>
               <dd>
                 {contact.solver.cellCount} cells to{" "}
@@ -715,6 +726,13 @@ function ContactResult({ contact }: { contact: HeatContactResult }) {
           </dl>
 
           <p className="result-note is-dim">{contact.solver.scheme}</p>
+          {contact.radialProfile.length > 0 ? (
+            <p className="result-note">
+              Surface temperature varies {contact.radialProfile[0]?.peakSurfaceTemperatureC.toFixed(1)}–
+              {contact.radialProfile[contact.radialProfile.length - 1]?.peakSurfaceTemperatureC.toFixed(1)} °C
+              across the contact disc (axisymmetric).
+            </p>
+          ) : null}
           <p className="result-note is-dim">{contact.damageModel.citation}</p>
           {contact.skinProfile.citations.map((citation) => (
             <p key={citation} className="result-note is-dim">

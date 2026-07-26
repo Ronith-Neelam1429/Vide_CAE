@@ -7,7 +7,7 @@
 
 use serde::Serialize;
 
-pub const MODEL_VERSION: &str = "vide-heat-1d-fv-cn/2.1.0";
+pub const MODEL_VERSION: &str = "vide-heat-fv-cn/3.0.0";
 
 /// Review states for a tabulated property. Anything that has not been checked
 /// against the primary source in-app stays `Unreviewed` so exports never imply
@@ -173,6 +173,14 @@ const VOLAR_FOREARM_LAYERS: &[TissueLayerSpec] = &[
     dermis(0.001_100, 0.000_800, 0.001_500),
     subcutis(0.001_200, 0.000_500, 0.004_000),
     muscle(0.030_000),
+];
+
+/// Anterior thigh over rectus femoris — thinner fat, higher muscle perfusion.
+const QUADRICEPS_LAYERS: &[TissueLayerSpec] = &[
+    epidermis(0.000_080, 0.000_050, 0.000_120),
+    dermis(0.001_400, 0.001_000, 0.002_000),
+    subcutis(0.000_800, 0.000_400, 0.002_000),
+    muscle(0.035_000),
 ];
 
 const PALM_LAYERS: &[TissueLayerSpec] = &[
@@ -433,6 +441,24 @@ pub static SKIN_PROFILES: &[SkinProfile] = &[
         blood_density_kg_per_m3: prop(1060.0, 1040.0, 1070.0, "kg/m^3", TISSUE_SOURCE),
         blood_specific_heat_j_per_kg_k: prop(3770.0, 3600.0, 3900.0, "J/(kg K)", TISSUE_SOURCE),
         layers: VOLAR_FOREARM_LAYERS,
+        citations: COMMON_CITATIONS,
+        review_status: UNREVIEWED,
+    },
+    SkinProfile {
+        id: "quadriceps",
+        label: "Anterior quadriceps",
+        site: "Vastus medialis / anterior thigh",
+        description:
+            "Thinner subcutaneous fat over active muscle. Used for large water-perfused thermode protocols (Petrofsky 2011).",
+        shallow_marker_label: SKIN_SHALLOW_MARKER,
+        deep_marker_label: SKIN_DEEP_MARKER,
+        category: "Skin",
+        baseline_skin_c: prop(33.1, 31.0, 35.0, "degC", BASELINE_SOURCE),
+        core_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
+        blood_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
+        blood_density_kg_per_m3: prop(1060.0, 1040.0, 1070.0, "kg/m^3", TISSUE_SOURCE),
+        blood_specific_heat_j_per_kg_k: prop(3770.0, 3600.0, 3900.0, "J/(kg K)", TISSUE_SOURCE),
+        layers: QUADRICEPS_LAYERS,
         citations: COMMON_CITATIONS,
         review_status: UNREVIEWED,
     },

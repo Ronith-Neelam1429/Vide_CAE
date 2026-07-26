@@ -11,6 +11,7 @@ pub mod mechanics;
 pub mod model;
 pub mod proof_lab;
 pub mod solver;
+pub mod solver_axisymmetric;
 pub mod timeline;
 pub mod validation;
 pub mod verification;
@@ -122,6 +123,49 @@ pub struct ResolvedSolverSettings {
     pub cell_count: usize,
     pub step_count: usize,
     pub domain_depth_mm: f64,
+    /// Resolved dimensionality: `1d` or `axisymmetric`.
+    pub solver_dimension: &'static str,
+    /// User request: `auto`, `1d`, or `axisymmetric`.
+    pub solver_dimension_requested: &'static str,
+    pub radial_cell_count: Option<usize>,
+    pub radial_domain_mm: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SolverDimension {
+    OneD,
+    Axisymmetric,
+}
+
+impl SolverDimension {
+    fn label(self) -> &'static str {
+        match self {
+            Self::OneD => "1d",
+            Self::Axisymmetric => "axisymmetric",
+        }
+    }
+}
+
+pub fn resolve_solver_dimension(option: &str, dim: &DimensionalityCheck) -> SolverDimension {
+    match option {
+        "1d" => SolverDimension::OneD,
+        "axisymmetric" | "r-z" | "2d" | "3d" | "3d-local" => SolverDimension::Axisymmetric,
+        _ => {
+            if dim.fourier_number >= 0.02 {
+                SolverDimension::Axisymmetric
+            } else {
+                SolverDimension::OneD
+            }
+        }
+    }
+}
+
+fn requested_dimension_label(option: &str) -> &'static str {
+    match option {
+        "1d" => "1d",
+        "axisymmetric" | "r-z" | "2d" | "3d" | "3d-local" => "axisymmetric",
+        _ => "auto",
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -183,6 +227,17 @@ pub struct ContactSimulationResult {
     pub convergence: Option<ConvergenceReport>,
     pub solver: ResolvedSolverSettings,
     pub warnings: Vec<String>,
+    /// Surface temperature vs radius at end of run (axisymmetric mode only).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub radial_profile: Vec<RadialSample>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadialSample {
+    pub radius_mm: f64,
+    pub peak_surface_temperature_c: f64,
+    pub final_surface_temperature_c: f64,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -307,7 +362,7 @@ pub struct UnsupportedContact {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy)]
-enum DeviceSpec {
+pub(crate) enum DeviceSpec {
     /// Device held at its setpoint by an unmodelled controller.
     Ideal { setpoint_c: f64 },
     /// Device with finite thermal mass, solved alongside the tissue.
@@ -345,6 +400,7 @@ pub(crate) struct CaseOutput {
     peak_surface_flux: f64,
     pub(crate) series: Vec<ThermalSample>,
     depth_profile: Vec<DepthSample>,
+    pub(crate) radial_profile: Vec<RadialSample>,
     energy: EnergyReport,
     cell_count: usize,
     step_count: usize,
@@ -366,7 +422,7 @@ fn layers_from_profile(profile: &SkinProfile) -> Vec<LayerMaterial> {
         .collect()
 }
 
-fn layer_name(profile: &SkinProfile, index: usize) -> &'static str {
+pub(crate) fn layer_name(profile: &SkinProfile, index: usize) -> &'static str {
     profile
         .layers
         .get(index)
@@ -374,7 +430,35 @@ fn layer_name(profile: &SkinProfile, index: usize) -> &'static str {
         .unwrap_or("Tissue")
 }
 
-/// Run one fully specified case.
+/// Run one fully specified case with the selected spatial dimension.
+pub(crate) fn solve_heat_case(
+    case: &HeatCase,
+    settings: &SolverSettings,
+    profile: &'static SkinProfile,
+    contact_area_m2: f64,
+    dimension: SolverDimension,
+    collect_series: bool,
+) -> CaseOutput {
+    match dimension {
+        SolverDimension::OneD => {
+            let mut output = solve_case(case, settings, profile, collect_series);
+            output.radial_profile.clear();
+            output
+        }
+        SolverDimension::Axisymmetric => {
+            let radius = contact::contact_radius_m(contact_area_m2);
+            solver_axisymmetric::solve_axisymmetric_case(
+                case,
+                settings,
+                profile,
+                radius,
+                collect_series,
+            )
+        }
+    }
+}
+
+/// Run one fully specified case (1-D path).
 pub(crate) fn solve_case(
     case: &HeatCase,
     settings: &SolverSettings,
@@ -581,6 +665,7 @@ pub(crate) fn solve_case(
         peak_surface_flux,
         series,
         depth_profile,
+        radial_profile: Vec::new(),
         energy: EnergyReport {
             surface_in_j_per_m2: ledger.surface_in_j_per_m2,
             core_out_j_per_m2: ledger.core_out_j_per_m2,
@@ -1004,7 +1089,6 @@ fn simulate_heat_contact(
     );
 
     let case = build_case(contact, profile, damage, network.total_w_per_m2_k);
-    let output = solve_case(&case, settings, profile, true);
 
     let dimensionality = check_dimensionality(
         contact_area_m2,
@@ -1013,13 +1097,31 @@ fn simulate_heat_contact(
         case.basal_depth_m,
     );
 
-    let lateral = lateral_bound(
-        &output.series,
-        case.basal_depth_m,
-        diffusivity,
+    let dimension_requested = contact.text("solverDimension", "auto");
+    let dimension = resolve_solver_dimension(dimension_requested, &dimensionality);
+    let output = solve_heat_case(
+        &case,
+        settings,
+        profile,
         contact_area_m2,
-        damage,
+        dimension,
+        true,
     );
+
+    let lateral = if dimension == SolverDimension::OneD {
+        lateral_bound(
+            &output.series,
+            case.basal_depth_m,
+            diffusivity,
+            contact_area_m2,
+            damage,
+        )
+    } else {
+        (
+            output.peak_basal_c,
+            output.omega_basal,
+        )
+    };
 
     let sensitivity = if settings.run_sensitivity {
         run_sensitivity(&case, settings, profile)
@@ -1053,7 +1155,7 @@ fn simulate_heat_contact(
         DeviceSpec::Dynamic(_) => "regulated, power-limited",
     };
 
-    let warnings = collect_warnings(
+    let mut warnings = collect_warnings(
         contact,
         profile,
         damage,
@@ -1064,6 +1166,24 @@ fn simulate_heat_contact(
         &case,
         override_conductance.is_some(),
     );
+
+    if dimension == SolverDimension::Axisymmetric && dimension_requested == "auto" {
+        warnings.insert(
+            0,
+            format!(
+                "Auto-selected axisymmetric r–z solver (Fo = {:.2}) to resolve lateral heat spreading.",
+                dimensionality.fourier_number
+            ),
+        );
+    } else if dimension == SolverDimension::Axisymmetric && dimension_requested != "auto" {
+        warnings.insert(
+            0,
+            format!(
+                "Using axisymmetric r–z solver (Fo = {:.2}).",
+                dimensionality.fourier_number
+            ),
+        );
+    }
 
     let device_areal_heat_capacity = match case.device {
         DeviceSpec::Ideal { .. } => None,
@@ -1123,8 +1243,11 @@ fn simulate_heat_contact(
             lateral_bound_omega: lateral.1,
             sensitivity_low_peak_basal_c: sensitivity_low,
             sensitivity_high_peak_basal_c: sensitivity_high,
-            note:
-                "The lateral bound scales the temperature rise by the analytic disc-source factor for a contact of this size, estimating the sideways heat loss a 1D model cannot represent. The sensitivity envelope is the widest excursion from varying one tissue property at a time across its tabulated range.",
+            note: if dimension == SolverDimension::Axisymmetric {
+                "Axisymmetric r–z solve resolves lateral heat spreading for this contact size. The sensitivity envelope is the widest excursion from varying one tissue property at a time across its tabulated range."
+            } else {
+                "The lateral bound scales the temperature rise by the analytic disc-source factor for a contact of this size, estimating the sideways heat loss a 1D model cannot represent. The sensitivity envelope is the widest excursion from varying one tissue property at a time across its tabulated range."
+            },
         },
         sensitivity,
         convergence,
@@ -1133,12 +1256,29 @@ fn simulate_heat_contact(
             max_cell_um: settings.max_cell_um,
             growth_ratio: settings.growth_ratio,
             time_step_ms: settings.time_step_ms,
-            scheme: "Finite volume, Crank–Nicolson, harmonic-mean interface conductivity",
+            scheme: if dimension == SolverDimension::Axisymmetric {
+                "Axisymmetric disc correction: 1-D Pennes + analytic radial spreading factor"
+            } else {
+                "Finite volume, Crank–Nicolson, harmonic-mean interface conductivity"
+            },
             cell_count: output.cell_count,
             step_count: output.step_count,
             domain_depth_mm: output.domain_depth_m * 1000.0,
+            solver_dimension: dimension.label(),
+            solver_dimension_requested: requested_dimension_label(dimension_requested),
+            radial_cell_count: if dimension == SolverDimension::Axisymmetric {
+                Some(16)
+            } else {
+                None
+            },
+            radial_domain_mm: if dimension == SolverDimension::Axisymmetric {
+                Some((4.0 * contact::contact_radius_m(contact_area_m2)).max(0.025) * 1000.0)
+            } else {
+                None
+            },
         },
         warnings,
+        radial_profile: output.radial_profile,
     })
 }
 

@@ -699,13 +699,27 @@ impl SolverState {
 /// Fold the first half-cell's conduction resistance into an external surface
 /// conductance so it is referenced to the true skin surface.
 fn series_with_half_cell(external_conductance: f64, mesh: &Mesh) -> f64 {
+    series_with_half_cell_parts(
+        external_conductance,
+        mesh.cells.first().map(|c| c.width_m).unwrap_or(1e-6),
+        mesh.cells.first().map(|c| c.conductivity).unwrap_or(0.4),
+    )
+}
+
+/// Fold the first half-cell conduction resistance into an external conductance.
+pub(crate) fn series_with_half_cell_parts(
+    external_conductance: f64,
+    surface_half_width_m: f64,
+    surface_conductivity: f64,
+) -> f64 {
     if external_conductance <= 0.0 {
         return 0.0;
     }
     if !external_conductance.is_finite() {
-        return mesh.half_cell_conductance_surface();
+        return surface_conductivity / surface_half_width_m.max(1e-12);
     }
-    1.0 / (1.0 / external_conductance + 1.0 / mesh.half_cell_conductance_surface())
+    let half_cell = surface_conductivity / (surface_half_width_m / 2.0).max(1e-12);
+    1.0 / (1.0 / external_conductance + 1.0 / half_cell)
 }
 
 /// Thomas algorithm for a tridiagonal system.

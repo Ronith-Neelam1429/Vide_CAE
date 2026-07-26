@@ -26,7 +26,8 @@
       "perfusionSteepnessC": 1.2
     },
     "options": {
-      "skinProfileId": "volar-forearm",
+      "solverDimension": "1d",
+      "skinProfileId": "quadriceps",
       "interfaceMaterialId": "water-film",
       "deviceMaterialId": "aluminium-6061",
       "deviceControl": "ideal",

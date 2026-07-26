@@ -217,16 +217,31 @@ export function resolveSkinProfileFromAnatomy(
 
     if (
       includesAny(name, [
-        "femur",
-        "fibula",
         "quadriceps",
         "vastus",
         "rectus femoris",
+        "vastus medialis",
+        "vastus lateralis",
+        "sartorius",
+      ])
+    ) {
+      return {
+        skinProfileId: "quadriceps",
+        regionLabel: "Anterior quadriceps",
+        confidence: "high",
+        reason: `Matched quadriceps mesh “${base}”`,
+        meshBaseName: base,
+      };
+    }
+
+    if (
+      includesAny(name, [
+        "femur",
+        "fibula",
         "hamstring",
         "biceps femoris",
         "gastrocnemius",
         "soleus",
-        "sartorius",
         "gracilis",
         "adductor",
         "gluteus",

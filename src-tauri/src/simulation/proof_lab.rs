@@ -12,7 +12,7 @@ use super::validation::{
     compare_series, parse_measured_csv, ComparisonMetrics, ComparisonPoint, MeasuredSample,
     MeasurementTarget, ProtocolSpec,
 };
-use super::{build_case, solve_case, SimulationContact, SolverSettings, ThermalSample};
+use super::{build_case, resolve_solver_dimension, solve_heat_case, SimulationContact, SolverSettings, ThermalSample};
 
 const WANG_EPOS_PROTOCOL: &str =
     include_str!("../../../benchmarks/proof-lab/wang-epos-2019-subject070/protocol.json");
@@ -166,7 +166,28 @@ fn run_blind_prediction(
     .ok_or_else(|| format!("Unknown damage model for {}", manifest.id))?;
     let conductance = super::validation::resolve_conductance(&contact, None)?;
     let case = build_case(&contact, profile, damage, conductance);
-    let output = solve_case(&case, settings, profile, true);
+    let contact_area_m2 = contact.number_or("contactAreaMm2", 25.0) * 1e-6;
+    let dermis = profile.layers.get(1).unwrap_or(&profile.layers[0]);
+    let diffusivity = dermis.conductivity_w_per_m_k.value
+        / (dermis.density_kg_per_m3.value * dermis.specific_heat_j_per_kg_k.value);
+    let dimensionality = super::contact::check_dimensionality(
+        contact_area_m2,
+        diffusivity,
+        case.pre_exposure_s + case.exposure_s + case.post_exposure_s,
+        case.basal_depth_m,
+    );
+    let dimension = super::resolve_solver_dimension(
+        contact.text("solverDimension", "auto"),
+        &dimensionality,
+    );
+    let output = super::solve_heat_case(
+        &case,
+        settings,
+        profile,
+        contact_area_m2,
+        dimension,
+        true,
+    );
     Ok(output.series)
 }
 

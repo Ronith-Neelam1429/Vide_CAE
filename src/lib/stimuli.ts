@@ -211,6 +211,22 @@ const HEAT_FIELDS: StimulusField[] = [
   },
   {
     kind: "choice",
+    key: "solverDimension",
+    label: "Solver mode",
+    defaultValue: "auto",
+    group: "contact",
+    choices: [
+      { value: "auto", label: "Auto — pick 1D or axisymmetric from contact size" },
+      { value: "1d", label: "1D fast — depth-only (large pads)" },
+      {
+        value: "axisymmetric",
+        label: "Axisymmetric r–z — resolves lateral heat spread (small probes)",
+      },
+    ],
+    help: "Small contact patches lose heat sideways. Auto switches to axisymmetric r–z when the 1D assumption breaks down (Fo ≥ 0.02).",
+  },
+  {
+    kind: "choice",
     key: "perfusionModel",
     label: "Blood perfusion",
     defaultValue: "local-hyperemia",

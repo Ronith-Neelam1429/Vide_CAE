@@ -244,6 +244,16 @@ export type ResolvedSolverSettings = {
   cellCount: number;
   stepCount: number;
   domainDepthMm: number;
+  solverDimension: string;
+  solverDimensionRequested: string;
+  radialCellCount: number | null;
+  radialDomainMm: number | null;
+};
+
+export type RadialSample = {
+  radiusMm: number;
+  peakSurfaceTemperatureC: number;
+  finalSurfaceTemperatureC: number;
 };
 
 export type HeatContactResult = {
@@ -266,6 +276,7 @@ export type HeatContactResult = {
   convergence: ConvergenceReport | null;
   solver: ResolvedSolverSettings;
   warnings: string[];
+  radialProfile: RadialSample[];
 };
 
 export type UnsupportedContact = {
