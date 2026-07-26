@@ -7,6 +7,7 @@ export function Viewport() {
   const paneRef = useRef<HTMLElement>(null);
   const design = useExperimentStore((s) => s.design);
   const tool = useExperimentStore((s) => s.tool);
+  const contactCount = useExperimentStore((s) => s.contactPoints.length);
 
   useEffect(() => {
     const el = paneRef.current;
@@ -41,16 +42,45 @@ export function Viewport() {
 
       <div className="viewport-overlay">
         <div className="viewport-overlay__coords">
-          {design ? `Design · ${design.fileName}` : "Skin patch · 4 × 4"}
+          {design
+            ? `${design.fileName}${contactCount ? ` · ${contactCount} CP` : ""}`
+            : "Skin patch · 4 × 4"}
         </div>
         <div className="viewport-overlay__hint">
-          {design && tool !== "orbit" ? (
+          {design && tool === "contact" ? (
             <>
               <span className="viewport-chip">
-                <strong>Gizmo</strong> {tool}
+                <strong>Click mesh</strong> add contact
               </span>
               <span className="viewport-chip">
-                <strong>Orbit tool</strong> free camera
+                <strong>Click marker</strong> select
+              </span>
+              <span className="viewport-chip">
+                <strong>Empty drag</strong> orbit
+              </span>
+            </>
+          ) : design && tool === "translate" ? (
+            <>
+              <span className="viewport-chip">
+                <strong>Drag object</strong> move
+              </span>
+              <span className="viewport-chip">
+                <strong>Gizmo</strong> precise move
+              </span>
+            </>
+          ) : design && tool === "rotate" ? (
+            <>
+              <span className="viewport-chip">
+                <strong>Drag object</strong> spin
+              </span>
+              <span className="viewport-chip">
+                <strong>Gizmo</strong> precise rotate
+              </span>
+            </>
+          ) : design && tool === "scale" ? (
+            <>
+              <span className="viewport-chip">
+                <strong>Gizmo</strong> scale
               </span>
             </>
           ) : (

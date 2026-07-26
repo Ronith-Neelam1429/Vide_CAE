@@ -34,6 +34,21 @@ function ToolButton({
   );
 }
 
+function IconContact() {
+  return (
+    <svg className="top-bar__tool-icon" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <circle cx="8" cy="8" r="2.4" fill="currentColor" />
+      <circle cx="8" cy="8" r="5.2" stroke="currentColor" strokeWidth="1.2" />
+      <path
+        d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function IconMove() {
   return (
     <svg className="top-bar__tool-icon" viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -108,10 +123,15 @@ function IconImport() {
 export function TopBar() {
   const tool = useExperimentStore((s) => s.tool);
   const setTool = useExperimentStore((s) => s.setTool);
+  const setSidebarTab = useExperimentStore((s) => s.setSidebarTab);
   const hasDesign = useExperimentStore((s) => s.design !== null);
   const isImporting = useExperimentStore((s) => s.isImporting);
+  const contactCount = useExperimentStore((s) => s.contactPoints.length);
 
-  const selectTool = (next: ToolMode) => () => setTool(next);
+  const selectTool = (next: ToolMode) => () => {
+    setTool(next);
+    if (next === "contact") setSidebarTab("contacts");
+  };
 
   return (
     <header className="top-bar">
@@ -135,6 +155,14 @@ export function TopBar() {
         </div>
         <div className="top-bar__divider" />
         <div className="top-bar__tool-group">
+          <ToolButton
+            label="Contact points"
+            active={tool === "contact"}
+            disabled={!hasDesign}
+            onClick={selectTool("contact")}
+          >
+            <IconContact />
+          </ToolButton>
           <ToolButton
             label="Move"
             active={tool === "translate"}
@@ -173,8 +201,14 @@ export function TopBar() {
       </div>
 
       <div className="top-bar__meta">
-        <span className="top-bar__pill">Phase 1</span>
-        <span>{isImporting ? "Importing…" : "Workspace"}</span>
+        <span className="top-bar__pill">Phase 2</span>
+        <span>
+          {isImporting
+            ? "Importing…"
+            : contactCount > 0
+              ? `${contactCount} contacts`
+              : "Workspace"}
+        </span>
       </div>
     </header>
   );

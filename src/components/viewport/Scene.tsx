@@ -1,11 +1,18 @@
 import { Grid, OrbitControls } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 import { useEffect, useRef } from "react";
-import { Color, MOUSE, TOUCH, type PerspectiveCamera } from "three";
+import {
+  Color,
+  MOUSE,
+  TOUCH,
+  type Group,
+  type PerspectiveCamera,
+} from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { useExperimentStore } from "../../store/experimentStore";
 import { ImportedDesign } from "./ImportedDesign";
 import { SkinSurface } from "./SkinSurface";
+import { usePlaneDrag } from "./usePlaneDrag";
 
 function CameraSetup() {
   const { camera, gl } = useThree();
@@ -27,13 +34,35 @@ function CameraSetup() {
 
 function PlaceholderCube() {
   const hasDesign = useExperimentStore((s) => s.design !== null);
+  const tool = useExperimentStore((s) => s.tool);
+  const pivotRef = useRef<Group>(null);
+  const dragMode =
+    tool === "translate" ? "translate" : tool === "rotate" ? "rotate" : null;
+  const { onPointerDown, onPointerOver, onPointerOut } = usePlaneDrag(
+    pivotRef,
+    hasDesign ? null : dragMode,
+    { syncStore: false },
+  );
+
   if (hasDesign) return null;
 
   return (
-    <mesh position={[0, 0.5, 0]} castShadow receiveShadow>
-      <boxGeometry args={[1, 1, 1]} />
-      <meshStandardMaterial color="#5a6570" metalness={0.35} roughness={0.45} />
-    </mesh>
+    <group
+      ref={pivotRef}
+      position={[0, 0.5, 0]}
+      onPointerDown={onPointerDown}
+      onPointerOver={onPointerOver}
+      onPointerOut={onPointerOut}
+    >
+      <mesh castShadow receiveShadow>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial
+          color="#5a6570"
+          metalness={0.35}
+          roughness={0.45}
+        />
+      </mesh>
+    </group>
   );
 }
 

@@ -15,22 +15,32 @@ function useToolHotkeys() {
         target &&
         (target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
           target.isContentEditable)
       ) {
         return;
       }
 
-      const hasDesign = useExperimentStore.getState().design !== null;
+      const store = useExperimentStore.getState();
+      const hasDesign = store.design !== null;
       const key = event.key.toLowerCase();
 
-      if (key === "g" && hasDesign) {
-        useExperimentStore.getState().setTool("translate");
+      if (key === "c" && hasDesign) {
+        store.setTool("contact");
+        store.setSidebarTab("contacts");
+      } else if (key === "g" && hasDesign) {
+        store.setTool("translate");
       } else if (key === "r" && hasDesign) {
-        useExperimentStore.getState().setTool("rotate");
+        store.setTool("rotate");
       } else if (key === "s" && hasDesign && !event.metaKey && !event.ctrlKey) {
-        useExperimentStore.getState().setTool("scale");
+        store.setTool("scale");
       } else if (key === "escape") {
-        useExperimentStore.getState().setTool("orbit");
+        store.setTool("orbit");
+      } else if (
+        (key === "backspace" || key === "delete") &&
+        store.selectedContactId
+      ) {
+        store.removeContactPoint(store.selectedContactId);
       }
     };
 
