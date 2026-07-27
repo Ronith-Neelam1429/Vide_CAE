@@ -138,6 +138,8 @@ export function BottomWorkspace() {
   const setExpanded = useExperimentStore((s) => s.setBottomPanelExpanded);
   const heightPx = useExperimentStore((s) => s.bottomPanelHeightPx);
   const setHeightPx = useExperimentStore((s) => s.setBottomPanelHeightPx);
+  const fullscreen = useExperimentStore((s) => s.bottomPanelFullscreen);
+  const setFullscreen = useExperimentStore((s) => s.setBottomPanelFullscreen);
   const simulationStatus = useExperimentStore((s) => s.simulationStatus);
   const contactCount = useExperimentStore((s) => s.contactPoints.length);
   const tool = useExperimentStore((s) => s.tool);
@@ -155,6 +157,15 @@ export function BottomWorkspace() {
       setExpanded(true);
     }
   }, [setExpanded, simulationStatus]);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFullscreen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [fullscreen, setFullscreen]);
 
   const onResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -193,14 +204,16 @@ export function BottomWorkspace() {
 
   return (
     <footer
-      className={`bottom-workspace${expanded ? " is-expanded" : ""}`}
+      className={`bottom-workspace${expanded ? " is-expanded" : ""}${
+        fullscreen ? " is-fullscreen" : ""
+      }`}
       style={
-        expanded
+        expanded && !fullscreen
           ? ({ ["--vide-bottom-height" as string]: `${heightPx}px` } as CSSProperties)
           : undefined
       }
     >
-      {expanded && (
+      {expanded && !fullscreen && (
         <div
           className="bottom-workspace__resize"
           onPointerDown={onResizePointerDown}
@@ -217,7 +230,13 @@ export function BottomWorkspace() {
           type="button"
           className="bottom-workspace__toggle"
           aria-expanded={expanded}
-          onClick={() => setExpanded(!expanded)}
+          onClick={() => {
+            if (fullscreen) {
+              setFullscreen(false);
+              return;
+            }
+            setExpanded(!expanded);
+          }}
         >
           <span className={`bottom-workspace__chevron${expanded ? " is-open" : ""}`}>›</span>
           <span className={`sim-terminal__status is-${statusTone}`} aria-hidden />
@@ -246,6 +265,15 @@ export function BottomWorkspace() {
             Contacts: {contactCount}
             {selectedLabel ? ` · ${selectedLabel}` : ""}
           </span>
+          <button
+            type="button"
+            className={`bottom-workspace__fullscreen${fullscreen ? " is-active" : ""}`}
+            title={fullscreen ? "Exit fullscreen (Esc)" : "Fullscreen results panel"}
+            aria-pressed={fullscreen}
+            onClick={() => setFullscreen(!fullscreen)}
+          >
+            {fullscreen ? "Exit full" : "Fullscreen"}
+          </button>
         </div>
       </div>
 

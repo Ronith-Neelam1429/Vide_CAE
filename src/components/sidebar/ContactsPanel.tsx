@@ -1,3 +1,4 @@
+import type { ModelCatalog } from "../../lib/simulation";
 import { stimulusLabel } from "../../lib/stimuli";
 import {
   useExperimentStore,
@@ -11,9 +12,19 @@ function formatDuration(seconds: number): string {
   return `${Number((seconds / 3600).toFixed(1))} h`;
 }
 
+function skinSiteName(
+  assignment: StimulusAssignment | undefined,
+  catalog: ModelCatalog | null,
+): string | null {
+  const id = assignment?.options.skinProfileId;
+  if (!id) return null;
+  const entry = catalog?.skinProfiles.find((profile) => profile.id === id);
+  return entry?.label ?? id;
+}
+
 function describeAssignment(
   assignment: StimulusAssignment | undefined,
-  regionLabel?: string | null,
+  siteLabel: string | null,
 ): string {
   if (!assignment) return "Unassigned";
   if (assignment.stimulusType !== "heat") {
@@ -21,7 +32,7 @@ function describeAssignment(
   }
   const { temperatureC, durationS, contactAreaMm2 } = assignment.parameters;
   return [
-    regionLabel ?? null,
+    siteLabel,
     temperatureC === undefined ? null : `${temperatureC} °C`,
     durationS === undefined ? null : formatDuration(durationS),
     contactAreaMm2 === undefined ? null : `${contactAreaMm2} mm²`,
@@ -35,6 +46,8 @@ export function ContactsPanel() {
   const showBody = useExperimentStore((s) => s.showBody);
   const contactPoints = useExperimentStore((s) => s.contactPoints);
   const assignments = useExperimentStore((s) => s.assignments);
+  const catalog = useExperimentStore((s) => s.catalog);
+  const importError = useExperimentStore((s) => s.importError);
   const selectedContactId = useExperimentStore((s) => s.selectedContactId);
   const selectContact = useExperimentStore((s) => s.selectContact);
   const removeContactPoint = useExperimentStore((s) => s.removeContactPoint);
@@ -46,6 +59,7 @@ export function ContactsPanel() {
   const selectedAssignment = assignments.find(
     (a) => a.contactPointId === selectedContactId,
   );
+  const selectedSite = skinSiteName(selectedAssignment, catalog);
 
   if (!design && !showBody) {
     return (
@@ -57,6 +71,12 @@ export function ContactsPanel() {
 
   return (
     <div className="contacts-panel">
+      {importError && (
+        <div className="sidebar__error" role="alert">
+          {importError}
+        </div>
+      )}
+
       <div className="contacts-panel__list-head">
         Contacts ({contactPoints.length})
         <div className="contacts-panel__list-actions">
@@ -87,6 +107,7 @@ export function ContactsPanel() {
             const assignment = assignments.find(
               (a) => a.contactPointId === contact.id,
             );
+            const site = skinSiteName(assignment, catalog);
             const active = contact.id === selectedContactId;
             return (
               <li key={contact.id}>
@@ -102,7 +123,7 @@ export function ContactsPanel() {
                   <span className="contacts-list__text">
                     <span className="contacts-list__name">{contact.label}</span>
                     <span className="contacts-list__meta">
-                      {describeAssignment(assignment, contact.anatomyRegionLabel)}
+                      {describeAssignment(assignment, site)}
                     </span>
                   </span>
                 </button>
@@ -117,13 +138,8 @@ export function ContactsPanel() {
           <div className="contacts-detail__header">
             <div>
               <div className="contacts-detail__title">{selected.label}</div>
-              {selected.anatomyRegionLabel && (
-                <div className="contacts-detail__coords">
-                  {selected.anatomyRegionLabel}
-                  {selectedAssignment?.options.skinProfileId
-                    ? ` · ${selectedAssignment.options.skinProfileId}`
-                    : ""}
-                </div>
+              {selectedSite && (
+                <div className="contacts-detail__coords">{selectedSite}</div>
               )}
             </div>
             <button

@@ -1,14 +1,16 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ProtocolSuggestion } from "../../lib/assist";
 import { listLiteratureCases } from "../../lib/literatureCases";
-import type { ModelCatalog } from "../../lib/simulation";
+import type { ModelCatalog, SensitivityEntry } from "../../lib/simulation";
+import {
+  impactHintForField,
+  sortFieldsByImpact,
+} from "../../lib/sensitivityHints";
 import {
   BUILTIN_STIMULI,
-  FIELD_GROUP_LABELS,
   getStimulusDefinition,
   STIMULUS_PRESETS,
   visibleFields,
-  type FieldGroup,
   type StimulusChoiceField,
   type StimulusField,
   type StimulusNumberField,
@@ -20,15 +22,22 @@ type StimulusFormProps = {
   contactPointId: string;
 };
 
-const GROUP_ORDER: FieldGroup[] = ["essential", "contact", "device", "environment"];
-
 type Option = { value: string; label: string; group?: string };
+
+/** Always-visible fields for a runnable experiment. */
+const PRIMARY_KEYS = new Set([
+  "skinProfileId",
+  "temperatureC",
+  "durationS",
+  "contactAreaMm2",
+  "appliedPressureKpa",
+  "holdDurationS",
+]);
 
 function formatConductivity(value: number): string {
   return `${value} W/m·K`;
 }
 
-/** Options for a choice field, taken from the backend catalog where relevant. */
 function optionsFor(
   field: StimulusChoiceField,
   catalog: ModelCatalog | null,
@@ -38,7 +47,6 @@ function optionsFor(
 
   switch (field.catalog) {
     case "skinProfiles":
-      // Group tissues by family so the list of organic materials is scannable.
       return catalog.skinProfiles.map((entry) => ({
         value: entry.id,
         label: entry.label,
@@ -62,7 +70,6 @@ function optionsFor(
   }
 }
 
-/** One-line explanation of the currently selected catalog option. */
 function describeOption(
   field: StimulusChoiceField,
   value: string,
@@ -73,7 +80,7 @@ function describeOption(
   switch (field.catalog) {
     case "skinProfiles": {
       const entry = catalog.skinProfiles.find((e) => e.id === value);
-      return entry ? `${entry.site}. ${entry.description}` : null;
+      return entry ? entry.description : null;
     }
     case "deviceMaterials": {
       const entry = catalog.deviceMaterials.find((e) => e.id === value);
@@ -94,20 +101,32 @@ function describeOption(
   }
 }
 
+function ImpactTag({ hint }: { hint: { impact: string; label: string } | null }) {
+  if (!hint) return null;
+  return (
+    <span className={`stimulus-form__impact is-${hint.impact}`} title={hint.label}>
+      {hint.label}
+    </span>
+  );
+}
+
 function NumberInput({
   field,
   value,
   onChange,
+  impact,
 }: {
   field: StimulusNumberField;
   value: number;
   onChange: (next: number) => void;
+  impact?: { impact: string; label: string } | null;
 }) {
   return (
     <label className="stimulus-form__field">
       <span className="stimulus-form__label">
         {field.label}
         <span className="stimulus-form__unit">{field.unit}</span>
+        <ImpactTag hint={impact ?? null} />
       </span>
       <input
         className="stimulus-form__input"
@@ -132,14 +151,15 @@ function ChoiceInput({
   options,
   description,
   onChange,
+  impact,
 }: {
   field: StimulusChoiceField;
   value: string;
   options: Option[];
   description: string | null;
   onChange: (next: string) => void;
+  impact?: { impact: string; label: string } | null;
 }) {
-  // Preserve first-seen order while collecting the distinct group names.
   const groups = options.reduce<string[]>((acc, option) => {
     const group = option.group ?? "";
     if (!acc.includes(group)) acc.push(group);
@@ -149,7 +169,10 @@ function ChoiceInput({
 
   return (
     <label className="stimulus-form__field">
-      <span className="stimulus-form__label">{field.label}</span>
+      <span className="stimulus-form__label">
+        {field.label}
+        <ImpactTag hint={impact ?? null} />
+      </span>
       <select
         className="stimulus-form__select"
         value={value}
@@ -197,17 +220,22 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
   const suggestProtocolFromText = useExperimentStore((s) => s.suggestProtocolFromText);
   const assistStatus = useExperimentStore((s) => s.assistStatus);
   const copyStimulusToAll = useExperimentStore((s) => s.copyStimulusToAll);
+  const advancedOpen = useExperimentStore((s) => s.stimulusAdvancedOpen);
+  const setAdvancedOpen = useExperimentStore((s) => s.setStimulusAdvancedOpen);
+  const simulationResult = useExperimentStore((s) => s.simulationResult);
 
   const [protocolQuery, setProtocolQuery] = useState("");
   const [protocolSuggestion, setProtocolSuggestion] =
     useState<ProtocolSuggestion | null>(null);
   const [protocolSearching, setProtocolSearching] = useState(false);
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-    essential: true,
-    contact: false,
-    device: false,
-    environment: false,
-  });
+  const [activePresetId, setActivePresetId] = useState("");
+
+  const sensitivity: SensitivityEntry[] = useMemo(() => {
+    const contact = simulationResult?.contacts.find(
+      (entry) => entry.contactPointId === contactPointId,
+    );
+    return contact?.sensitivity ?? [];
+  }, [simulationResult, contactPointId]);
 
   if (!assignment) {
     return <div className="stimulus-form__empty">No stimulus assigned yet.</div>;
@@ -218,7 +246,27 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
     ? visibleFields(definition, assignment.parameters, assignment.options)
     : [];
 
-  const renderField = (field: StimulusField) => {
+  const primaryFields = fields.filter((field) => PRIMARY_KEYS.has(field.key));
+  // Keep a stable primary order: skin → temp/pressure → duration → area
+  const primaryOrder = [
+    "skinProfileId",
+    "temperatureC",
+    "appliedPressureKpa",
+    "durationS",
+    "holdDurationS",
+    "contactAreaMm2",
+  ];
+  primaryFields.sort(
+    (a, b) => primaryOrder.indexOf(a.key) - primaryOrder.indexOf(b.key),
+  );
+
+  const advancedFields = sortFieldsByImpact(
+    fields.filter((field) => !PRIMARY_KEYS.has(field.key)),
+    sensitivity,
+  );
+
+  const renderField = (field: StimulusField, withImpact: boolean) => {
+    const impact = withImpact ? impactHintForField(field.key, sensitivity) : null;
     if (field.kind === "number") {
       return (
         <NumberInput
@@ -226,6 +274,7 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
           field={field}
           value={assignment.parameters[field.key] ?? field.defaultValue}
           onChange={(next) => setStimulusParameter(contactPointId, field.key, next)}
+          impact={impact}
         />
       );
     }
@@ -239,6 +288,7 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
         options={optionsFor(field, catalog)}
         description={describeOption(field, currentValue, catalog)}
         onChange={(next) => setStimulusOption(contactPointId, field.key, next)}
+        impact={impact}
       />
     );
   };
@@ -268,126 +318,129 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
         </select>
       </label>
 
-      <label className="stimulus-form__field">
-        <span className="stimulus-form__label">Quick fill</span>
+      <label className="stimulus-form__field stimulus-form__field--preset">
+        <span className="stimulus-form__label">Quick fill · Preset scenario</span>
         <select
           className="stimulus-form__select"
-          value=""
+          value={activePresetId}
           onChange={(event) => {
-            if (event.target.value) applyPreset(contactPointId, event.target.value);
+            const id = event.target.value;
+            setActivePresetId(id);
+            if (id) applyPreset(contactPointId, id);
           }}
         >
-          <option value="">Preset scenario…</option>
+          <option value="">Choose a starting scenario…</option>
           {STIMULUS_PRESETS.map((preset) => (
             <option key={preset.id} value={preset.id}>
               {preset.label}
             </option>
           ))}
         </select>
+        <span className="stimulus-form__help">
+          One click fills every field below with validated defaults — then press Run.
+        </span>
       </label>
 
       {definition && !definition.implemented && (
         <div className="stimulus-form__notice">{definition.description}</div>
       )}
 
-      {GROUP_ORDER.map((group) => {
-        const groupFields = fields.filter((field) => field.group === group);
-        if (groupFields.length === 0) return null;
-        const open = openGroups[group] ?? false;
+      <div className="stimulus-form__primary">{primaryFields.map((f) => renderField(f, false))}</div>
 
-        return (
-          <section key={group} className="stimulus-group">
-            <button
-              type="button"
-              className="stimulus-group__toggle"
-              aria-expanded={open}
-              onClick={() =>
-                setOpenGroups((current) => ({ ...current, [group]: !open }))
-              }
-            >
-              <span className={`stimulus-group__chevron${open ? " is-open" : ""}`}>
-                ›
-              </span>
-              {FIELD_GROUP_LABELS[group]}
-              <span className="stimulus-group__count">{groupFields.length}</span>
-            </button>
-            {open && (
-              <div className="stimulus-form__params">{groupFields.map(renderField)}</div>
-            )}
-          </section>
-        );
-      })}
-
-      <details className="stimulus-form__advanced">
-        <summary>
-          Match a published study
-          {assistStatus?.configured ? " · Azure ready" : ""}
-          {activeLiteratureCase ? ` · ${activeLiteratureCase.label}` : ""}
-        </summary>
-        <select
-          className="stimulus-form__select"
-          value={assignment.literatureCaseId ?? ""}
-          onChange={(event) => {
-            if (event.target.value) {
-              applyLiteratureCase(contactPointId, event.target.value);
-            }
-          }}
-        >
-          <option value="">Published case…</option>
-          {literatureCases.map((entry) => (
-            <option key={entry.id} value={entry.id}>
-              {entry.label}
-            </option>
-          ))}
-        </select>
-        <input
-          className="stimulus-form__input"
-          type="text"
-          placeholder="Describe protocol, then press Enter"
-          value={protocolQuery}
-          onChange={(event) => setProtocolQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" || protocolSearching) return;
-            event.preventDefault();
-            void (async () => {
-              setProtocolSearching(true);
-              try {
-                const suggestion = await suggestProtocolFromText(
-                  contactPointId,
-                  protocolQuery,
-                );
-                setProtocolSuggestion(suggestion);
-              } finally {
-                setProtocolSearching(false);
-              }
-            })();
-          }}
-        />
-        {protocolSuggestion && (
-          <div className="stimulus-form__literature-suggestion">
-            <strong>{protocolSuggestion.label}</strong>
-            <span>
-              {protocolSuggestion.confidence} · {protocolSuggestion.source}
+      {advancedFields.length > 0 && (
+        <section className="stimulus-advanced">
+          <button
+            type="button"
+            className="stimulus-advanced__toggle"
+            aria-expanded={advancedOpen}
+            onClick={() => setAdvancedOpen(!advancedOpen)}
+          >
+            <span className={`result-section__chevron${advancedOpen ? " is-open" : ""}`}>
+              ›
             </span>
-            {protocolSuggestion.confidence !== "high" && (
-              <button
-                type="button"
-                className="sidebar__btn sidebar__btn--compact"
-                onClick={() => {
-                  applyProtocolSuggestion(contactPointId, protocolSuggestion);
-                  setProtocolSuggestion(null);
-                }}
-              >
-                Apply
-              </button>
-            )}
-          </div>
-        )}
-        <p className="stimulus-form__help">
-          Optional. Fills temperature, duration, and area from a known paper.
-          Your run still uses the contact you placed — this is not the Results graph.
-        </p>
-      </details>
+            Advanced
+            <span className="stimulus-advanced__count">{advancedFields.length}</span>
+          </button>
+          {advancedOpen && (
+            <div className="stimulus-form__params">
+              {sensitivity.length > 0 && (
+                <p className="stimulus-form__help">
+                  Impact tags use the last run’s sensitivity analysis for this contact.
+                  Fields are ordered highest impact first.
+                </p>
+              )}
+              {advancedFields.map((field) => renderField(field, true))}
+
+              <details className="stimulus-form__advanced">
+                <summary>
+                  Match a published study
+                  {assistStatus?.configured ? " · Azure ready" : ""}
+                  {activeLiteratureCase ? ` · ${activeLiteratureCase.label}` : ""}
+                </summary>
+                <select
+                  className="stimulus-form__select"
+                  value={assignment.literatureCaseId ?? ""}
+                  onChange={(event) => {
+                    if (event.target.value) {
+                      applyLiteratureCase(contactPointId, event.target.value);
+                    }
+                  }}
+                >
+                  <option value="">Published case…</option>
+                  {literatureCases.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  className="stimulus-form__input"
+                  type="text"
+                  placeholder="Describe protocol, then press Enter"
+                  value={protocolQuery}
+                  onChange={(event) => setProtocolQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" || protocolSearching) return;
+                    event.preventDefault();
+                    void (async () => {
+                      setProtocolSearching(true);
+                      try {
+                        const suggestion = await suggestProtocolFromText(
+                          contactPointId,
+                          protocolQuery,
+                        );
+                        setProtocolSuggestion(suggestion);
+                      } finally {
+                        setProtocolSearching(false);
+                      }
+                    })();
+                  }}
+                />
+                {protocolSuggestion && (
+                  <div className="stimulus-form__literature-suggestion">
+                    <strong>{protocolSuggestion.label}</strong>
+                    <span>
+                      {protocolSuggestion.confidence} · {protocolSuggestion.source}
+                    </span>
+                    {protocolSuggestion.confidence !== "high" && (
+                      <button
+                        type="button"
+                        className="sidebar__btn sidebar__btn--compact"
+                        onClick={() => {
+                          applyProtocolSuggestion(contactPointId, protocolSuggestion);
+                          setProtocolSuggestion(null);
+                        }}
+                      >
+                        Apply
+                      </button>
+                    )}
+                  </div>
+                )}
+              </details>
+            </div>
+          )}
+        </section>
+      )}
 
       {contactCount > 1 && (
         <button

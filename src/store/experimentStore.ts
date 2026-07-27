@@ -40,7 +40,7 @@ export type Vec3 = [number, number, number];
 export type CadKind = "stl" | "obj";
 export type TransformMode = "translate" | "rotate" | "scale";
 export type ToolMode = "orbit" | "contact" | TransformMode;
-export type SidebarTab = "design" | "contacts";
+export type SidebarTab = "contacts";
 export type BottomPanelTab = "output" | "results" | "proof-lab" | "compare";
 
 export type DesignAsset = {
@@ -99,6 +99,9 @@ type ExperimentState = {
   bottomPanelTab: BottomPanelTab;
   bottomPanelExpanded: boolean;
   bottomPanelHeightPx: number;
+  bottomPanelFullscreen: boolean;
+  /** Persist Advanced stimulus fields open/closed across contact switches. */
+  stimulusAdvancedOpen: boolean;
   contactPoints: ContactPoint[];
   assignments: StimulusAssignment[];
   selectedContactId: string | null;
@@ -140,6 +143,8 @@ type ExperimentState = {
   setBottomPanelTab: (tab: BottomPanelTab) => void;
   setBottomPanelExpanded: (expanded: boolean) => void;
   setBottomPanelHeightPx: (heightPx: number) => void;
+  setBottomPanelFullscreen: (fullscreen: boolean) => void;
+  setStimulusAdvancedOpen: (open: boolean) => void;
   toggleAnatomy: () => void;
   toggleShowBody: () => void;
   setAnatomyTransform: (partial: {
@@ -254,11 +259,13 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
   scale: DEFAULT_SCALE,
   transformEpoch: 0,
   tool: "translate",
-  sidebarTab: "design",
+  sidebarTab: "contacts",
   sidebarWidthPx: 300,
   bottomPanelTab: "output",
   bottomPanelExpanded: false,
   bottomPanelHeightPx: 280,
+  bottomPanelFullscreen: false,
+  stimulusAdvancedOpen: false,
   contactPoints: [],
   assignments: [],
   selectedContactId: null,
@@ -333,9 +340,19 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
     set({ sidebarWidthPx: Math.min(480, Math.max(220, sidebarWidthPx)) }),
   setBottomPanelTab: (bottomPanelTab) =>
     set({ bottomPanelTab, bottomPanelExpanded: true }),
-  setBottomPanelExpanded: (bottomPanelExpanded) => set({ bottomPanelExpanded }),
+  setBottomPanelExpanded: (bottomPanelExpanded) =>
+    set({
+      bottomPanelExpanded,
+      ...(bottomPanelExpanded ? {} : { bottomPanelFullscreen: false }),
+    }),
   setBottomPanelHeightPx: (bottomPanelHeightPx) =>
     set({ bottomPanelHeightPx: Math.min(560, Math.max(160, bottomPanelHeightPx)) }),
+  setBottomPanelFullscreen: (bottomPanelFullscreen) =>
+    set({
+      bottomPanelFullscreen,
+      ...(bottomPanelFullscreen ? { bottomPanelExpanded: true } : {}),
+    }),
+  setStimulusAdvancedOpen: (stimulusAdvancedOpen) => set({ stimulusAdvancedOpen }),
   setImporting: (isImporting) => set({ isImporting }),
   setImportError: (importError) => set({ importError }),
 
@@ -347,7 +364,7 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       scale: [...DEFAULT_SCALE] as Vec3,
       transformEpoch: state.transformEpoch + 1,
       tool: "translate",
-      sidebarTab: "design",
+      sidebarTab: "contacts",
       contactPoints: [],
       assignments: [],
       selectedContactId: null,
@@ -372,7 +389,7 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       mechanicsResult: null,
       simulationStatus: "idle",
       simulationError: null,
-      sidebarTab: "design",
+      sidebarTab: "contacts",
       importError: null,
     })),
 

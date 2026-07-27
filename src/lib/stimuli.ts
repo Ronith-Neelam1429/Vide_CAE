@@ -452,7 +452,7 @@ export type StimulusPreset = {
 export const STIMULUS_PRESETS: StimulusPreset[] = [
   {
     id: "wearable-band",
-    label: "Wearable band, worn continuously",
+    label: "Wearable device on wrist / forearm",
     description: "43 °C regulated band on the forearm through a silicone pad for 30 minutes.",
     stimulusType: "heat",
     parameters: {
@@ -474,11 +474,13 @@ export const STIMULUS_PRESETS: StimulusPreset[] = [
       interfaceMaterialId: "silicone-pad",
       deviceControl: "regulated",
       damageModelId: "henriques-1947",
+      solverDimension: "auto",
+      perfusionModel: "local-hyperemia",
     },
   },
   {
     id: "handheld-enclosure",
-    label: "Handheld enclosure, warm to the grip",
+    label: "Warm handheld grip (palm)",
     description: "48 °C aluminium surface gripped by the palm for a minute with no active heating.",
     stimulusType: "heat",
     parameters: {
@@ -500,11 +502,13 @@ export const STIMULUS_PRESETS: StimulusPreset[] = [
       interfaceMaterialId: "dry-contact",
       deviceControl: "passive",
       damageModelId: "henriques-1947",
+      solverDimension: "auto",
+      perfusionModel: "local-hyperemia",
     },
   },
   {
     id: "therapy-pad",
-    label: "Thermal therapy pad",
+    label: "Hot pack / therapy pad on upper back",
     description: "45 °C gel-coupled pad on the upper back for 10 minutes.",
     stimulusType: "heat",
     parameters: {
@@ -526,11 +530,13 @@ export const STIMULUS_PRESETS: StimulusPreset[] = [
       interfaceMaterialId: "hydrogel",
       deviceControl: "regulated",
       damageModelId: "henriques-1947",
+      solverDimension: "auto",
+      perfusionModel: "local-hyperemia",
     },
   },
   {
     id: "hot-surface-touch",
-    label: "Brief hot-surface touch",
+    label: "Iron / hot-surface contact (fingertip)",
     description: "One-second fingertip contact with a 70 °C metal surface.",
     stimulusType: "heat",
     parameters: {
@@ -552,11 +558,13 @@ export const STIMULUS_PRESETS: StimulusPreset[] = [
       interfaceMaterialId: "dry-contact",
       deviceControl: "passive",
       damageModelId: "henriques-1947",
+      solverDimension: "auto",
+      perfusionModel: "local-hyperemia",
     },
   },
   {
     id: "threshold-probe",
-    label: "Burn-threshold probe",
+    label: "Hot pack on forearm (threshold probe)",
     description: "Gel-coupled 55 °C probe held on the forearm for 30 s, the classic threshold geometry.",
     stimulusType: "heat",
     parameters: {
@@ -578,6 +586,8 @@ export const STIMULUS_PRESETS: StimulusPreset[] = [
       interfaceMaterialId: "hydrogel",
       deviceControl: "ideal",
       damageModelId: "henriques-1947",
+      solverDimension: "auto",
+      perfusionModel: "local-hyperemia",
     },
   },
 ];

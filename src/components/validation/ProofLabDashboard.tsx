@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import type { ProofLabCaseResult, WindowComparison } from "../../lib/simulation";
 import { useExperimentStore } from "../../store/experimentStore";
+import { ModelDiagnostics } from "../results/ModelDiagnostics";
 
 function formatMetric(value: number | null | undefined, digits = 3, unit = ""): string {
   if (value === null || value === undefined || Number.isNaN(value)) {
@@ -228,13 +229,53 @@ export function ProofLabPanel() {
   const error = useExperimentStore((s) => s.proofLabError);
   const report = useExperimentStore((s) => s.proofLabResult);
   const run = useExperimentStore((s) => s.runProofLab);
+  const simulationResult = useExperimentStore((s) => s.simulationResult);
+  const selectedContactId = useExperimentStore((s) => s.selectedContactId);
+  const selectContact = useExperimentStore((s) => s.selectContact);
+
+  const heatContacts = simulationResult?.contacts ?? [];
+  const activeContact =
+    heatContacts.find((c) => c.contactPointId === selectedContactId) ??
+    heatContacts[0] ??
+    null;
 
   return (
     <div className="docked-validation proof-lab">
+      {activeContact && simulationResult && (
+        <section className="proof-lab__diagnostics">
+          <header className="docked-validation__header">
+            <div>
+              <h2>Model diagnostics</h2>
+              <p>
+                Trust checks for your workspace run — not the paper comparison below.
+              </p>
+            </div>
+            {heatContacts.length > 1 && (
+              <select
+                className="stimulus-form__select"
+                value={activeContact.contactPointId}
+                onChange={(event) => selectContact(event.target.value)}
+                aria-label="Contact for diagnostics"
+              >
+                {heatContacts.map((contact) => (
+                  <option key={contact.contactPointId} value={contact.contactPointId}>
+                    {contact.label} · {contact.skinProfile.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </header>
+          <ModelDiagnostics
+            contact={activeContact}
+            verification={simulationResult.manifest.verification}
+          />
+        </section>
+      )}
+
       <header className="docked-validation__header">
         <div>
-          <h2>Proof lab</h2>
-          <p>Blind paper comparison — solver never sees measured data during the run.</p>
+          <h2>Blind paper comparison</h2>
+          <p>Solver never sees measured data during the run.</p>
         </div>
         <button
           type="button"

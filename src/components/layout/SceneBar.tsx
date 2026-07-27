@@ -1,3 +1,4 @@
+import { importDesignFromDisk } from "../../lib/importDesign";
 import { useExperimentStore } from "../../store/experimentStore";
 
 function BodyGlyph({ active }: { active: boolean }) {
@@ -26,6 +27,7 @@ export function SceneBar() {
   const resetAnatomyTransform = useExperimentStore((s) => s.resetAnatomyTransform);
   const design = useExperimentStore((s) => s.design);
   const clearDesign = useExperimentStore((s) => s.clearDesign);
+  const isImporting = useExperimentStore((s) => s.isImporting);
   const tool = useExperimentStore((s) => s.tool);
   const setTool = useExperimentStore((s) => s.setTool);
   const setSidebarTab = useExperimentStore((s) => s.setSidebarTab);
@@ -52,6 +54,29 @@ export function SceneBar() {
           <BodyGlyph active={showBody} />
         </span>
         <span className="scene-bar__tile-caption">Body</span>
+      </button>
+
+      <button
+        type="button"
+        className="scene-bar__tile"
+        title="Import STL or OBJ device mesh"
+        disabled={isImporting}
+        onClick={() => void importDesignFromDisk()}
+      >
+        <span className="scene-bar__tile-art scene-bar__tile-art--import">
+          <svg viewBox="0 0 20 20" fill="none" aria-hidden>
+            <path
+              d="M10 3v9M6.5 8.5 10 12l3.5-3.5M4 14.5v1a1.5 1.5 0 0 0 1.5 1.5h9A1.5 1.5 0 0 0 16 15.5v-1"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
+        <span className="scene-bar__tile-caption">
+          {isImporting ? "…" : "Import"}
+        </span>
       </button>
 
       {design && (

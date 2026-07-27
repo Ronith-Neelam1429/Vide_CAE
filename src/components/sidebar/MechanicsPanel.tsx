@@ -1,5 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  Bar,
+  BarChart,
   CartesianGrid,
   Line,
   LineChart,
@@ -10,6 +12,13 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import {
+  formatStressKpa,
+  mechRiskFromSummary,
+  mechVerdictSentence,
+  recoveryRatio,
+  timeToPeakIndentationS,
+} from "../../lib/mechVerdict";
 import type { MechContactResult, MechanicsResult } from "../../lib/mechanics";
 
 const AXIS = {
@@ -18,13 +27,6 @@ const AXIS = {
   axisLine: { stroke: "#4a4a4a" },
 } as const;
 
-function verdictTone(verdict: string): "ok" | "warn" | "bad" {
-  if (verdict.toLowerCase().includes("fracture")) return "bad";
-  if (verdict.toLowerCase().includes("permanent") || verdict.toLowerCase().includes("large"))
-    return "warn";
-  return "ok";
-}
-
 function formatCycles(n: number): string {
   if (!isFinite(n)) return "∞";
   if (n >= 1e6) return `${(n / 1e6).toPrecision(3)}M`;
@@ -32,32 +34,132 @@ function formatCycles(n: number): string {
   return n.toFixed(0);
 }
 
+function ChartTooltip({
+  active,
+  payload,
+  label,
+  unit,
+}: {
+  active?: boolean;
+  label?: number | string;
+  unit: string;
+  payload?: Array<{ name: string; value: number; color: string }>;
+}) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="results-tooltip">
+      <strong>
+        {typeof label === "number" ? label.toFixed(2) : label} {unit}
+      </strong>
+      {payload.map((entry) => (
+        <span key={entry.name} style={{ color: entry.color }}>
+          {entry.name}: {Number(entry.value).toPrecision(4)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function MechVerdictCard({ contact }: { contact: MechContactResult }) {
+  const { summary, fatigue } = contact;
+  const { level, tone } = mechRiskFromSummary(summary, fatigue);
+  const sentence = mechVerdictSentence(contact);
+  const recovery = recoveryRatio(summary);
+  const peakTime = timeToPeakIndentationS(contact.indentationSeries);
+
+  return (
+    <section className={`verdict-card is-${tone}`} aria-live="polite">
+      <div className="verdict-card__top">
+        <div className="verdict-card__identity">
+          <strong>{contact.label}</strong>
+          <span>{contact.skinProfile.label}</span>
+        </div>
+        <div className={`verdict-card__badge is-${tone}`}>
+          <span className="verdict-card__badge-label">Mechanical outcome</span>
+          <span className="verdict-card__badge-value">{level}</span>
+          {fatigue ? (
+            <span className="verdict-card__badge-threshold">
+              Fatigue D = {(fatigue.damageFraction * 100).toFixed(0)}% of 100%
+            </span>
+          ) : (
+            <span className="verdict-card__badge-threshold">
+              Yield = permanent tissue set
+            </span>
+          )}
+        </div>
+      </div>
+
+      <p className="verdict-card__sentence">{sentence}</p>
+
+      <div className="verdict-card__hero">
+        <div className="verdict-card__hero-main">
+          <span className="verdict-card__hero-label">Peak indentation</span>
+          <strong className="verdict-card__hero-value">
+            {summary.peakIndentationUm.toFixed(0)}
+            <span> µm</span>
+          </strong>
+        </div>
+        <div className="verdict-card__hero-side">
+          <div>
+            <span>Recovery</span>
+            <strong>{(recovery * 100).toFixed(0)}%</strong>
+          </div>
+          <div>
+            <span>Peak stress</span>
+            <strong>{formatStressKpa(summary.peakStressKpa)}</strong>
+          </div>
+          <div>
+            <span>Column strain</span>
+            <strong className="is-secondary">
+              {summary.deformationPercent.toFixed(1)}%
+            </strong>
+          </div>
+          {peakTime !== null && (
+            <div>
+              <span>Time to peak</span>
+              <strong className="is-secondary">{peakTime.toFixed(1)} s</strong>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function IndentationChart({ contact }: { contact: MechContactResult }) {
   const isCyclic = contact.inputs.loadingMode === "cyclic";
   return (
     <div className="results-chart" aria-label="Indentation over time">
-      <ResponsiveContainer width="100%" height={200}>
+      <ResponsiveContainer width="100%" height={260}>
         <LineChart
           data={contact.indentationSeries}
           margin={{ top: 12, right: 10, bottom: 2, left: -6 }}
         >
           <CartesianGrid stroke="#3d3d3d" strokeDasharray="3 3" />
-          {!isCyclic && (
-            <ReferenceArea x1={0} x2={contact.inputs.holdS} fill="#20b8ed" fillOpacity={0.06} />
+          {!isCyclic && contact.inputs.holdS > 0 && (
+            <ReferenceArea
+              x1={0}
+              x2={contact.inputs.holdS}
+              fill="#38bdf8"
+              fillOpacity={0.06}
+            />
           )}
           <XAxis dataKey="timeS" type="number" unit=" s" {...AXIS} />
           <YAxis unit=" µm" width={54} {...AXIS} />
-          <Tooltip
-            contentStyle={{
-              background: "rgba(29,29,29,0.96)",
-              border: "1px solid #3a3a3a",
-              borderRadius: 6,
+          <ReferenceLine
+            y={contact.summary.residualIndentationUm}
+            stroke="#e3b341"
+            strokeDasharray="4 4"
+            label={{
+              value: "Residual set",
+              fill: "#f0c85a",
               fontSize: 10,
+              position: "insideTopRight",
             }}
-            formatter={(value) => [`${Number(value).toFixed(1)} µm`, "Indentation"]}
-            labelFormatter={(label) => `${Number(label).toFixed(1)} s`}
           />
+          <Tooltip content={<ChartTooltip unit="s" />} />
           <Line
+            name="Indentation"
             type="monotone"
             dataKey="indentationUm"
             stroke="#38bdf8"
@@ -69,8 +171,98 @@ function IndentationChart({ contact }: { contact: MechContactResult }) {
       </ResponsiveContainer>
       <p className="results-chart__caption">
         {isCyclic
-          ? `Load/unload extrema across ${formatCycles(contact.inputs.cycles)} cycles at ${contact.inputs.frequencyHz.toFixed(2)} Hz; large protocols are sampled, not downscaled.`
-          : "Shaded region is the load hold; the tail is viscoelastic recovery."}
+          ? `Cyclic load/recovery at ${contact.inputs.frequencyHz.toFixed(2)} Hz · ${formatCycles(contact.inputs.cycles)} cycles.`
+          : "Shaded region is load hold; tail is viscoelastic recovery."}
+      </p>
+    </div>
+  );
+}
+
+function LoadChart({ contact }: { contact: MechContactResult }) {
+  return (
+    <div className="results-chart" aria-label="Applied contact pressure over time">
+      <ResponsiveContainer width="100%" height={260}>
+        <LineChart
+          data={contact.indentationSeries}
+          margin={{ top: 12, right: 10, bottom: 2, left: -6 }}
+        >
+          <CartesianGrid stroke="#3d3d3d" strokeDasharray="3 3" />
+          <XAxis dataKey="timeS" type="number" unit=" s" {...AXIS} />
+          <YAxis unit=" kPa" width={54} {...AXIS} />
+          <Tooltip content={<ChartTooltip unit="s" />} />
+          <Line
+            name="Applied pressure"
+            type="stepAfter"
+            dataKey="appliedPressureKpa"
+            stroke="#a78bfa"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+      <p className="results-chart__caption">
+        Contact pressure waveform — drives Kelvin–Voigt creep with Boussinesq depth decay.
+      </p>
+    </div>
+  );
+}
+
+function LayerStrainChart({ contact }: { contact: MechContactResult }) {
+  const data = useMemo(() => {
+    let depth = 0;
+    return contact.layers.map((layer) => {
+      const mid = depth + layer.thicknessMm / 2;
+      depth += layer.thicknessMm;
+      return {
+        depthMm: mid,
+        label: layer.name,
+        strainPct: layer.peakStrain * 100,
+        stressKpa: layer.peakStressKpa,
+        yielded: layer.yielded,
+      };
+    });
+  }, [contact.layers]);
+
+  return (
+    <div className="results-chart" aria-label="Peak strain by tissue layer">
+      <ResponsiveContainer width="100%" height={260}>
+        <BarChart data={data} margin={{ top: 12, right: 10, bottom: 2, left: -6 }}>
+          <CartesianGrid stroke="#3d3d3d" strokeDasharray="3 3" />
+          <XAxis
+            dataKey="label"
+            tick={{ fill: "#909090", fontSize: 9 }}
+            tickLine={false}
+            axisLine={{ stroke: "#4a4a4a" }}
+            interval={0}
+            angle={-18}
+            textAnchor="end"
+            height={48}
+          />
+          <YAxis unit=" %" width={48} {...AXIS} />
+          <Tooltip
+            contentStyle={{
+              background: "rgba(29,29,29,0.96)",
+              border: "1px solid #3a3a3a",
+              borderRadius: 6,
+              fontSize: 10,
+            }}
+            formatter={(value, name) => {
+              if (name === "Peak strain") return [`${Number(value).toFixed(2)}%`, name];
+              return [`${Number(value).toFixed(1)} kPa`, "Layer stress"];
+            }}
+          />
+          <Bar
+            name="Peak strain"
+            dataKey="strainPct"
+            fill="#f08c69"
+            radius={[3, 3, 0, 0]}
+            isAnimationActive={false}
+          />
+        </BarChart>
+      </ResponsiveContainer>
+      <p className="results-chart__caption">
+        Peak strain per layer at end of loading — layers marked yielded in Physics detail.
       </p>
     </div>
   );
@@ -83,14 +275,15 @@ function FatigueChart({ contact }: { contact: MechContactResult }) {
       fatigue?.cycleSeries.map((s) => ({
         ...s,
         logCycle: Math.log10(Math.max(1, s.cycle)),
+        damagePct: s.damage * 100,
       })) ?? [],
     [fatigue],
   );
   if (!fatigue) return null;
 
   return (
-    <div className="results-chart" aria-label="Fatigue shape change over cycles">
-      <ResponsiveContainer width="100%" height={200}>
+    <div className="results-chart" aria-label="Fatigue damage accumulation">
+      <ResponsiveContainer width="100%" height={260}>
         <LineChart data={data} margin={{ top: 12, right: 10, bottom: 2, left: -6 }}>
           <CartesianGrid stroke="#3d3d3d" strokeDasharray="3 3" />
           <XAxis
@@ -100,205 +293,275 @@ function FatigueChart({ contact }: { contact: MechContactResult }) {
             tickFormatter={(v: number) => `10^${v.toFixed(0)}`}
             {...AXIS}
           />
-          <YAxis unit=" µm" width={54} {...AXIS} />
+          <YAxis domain={[0, Math.max(110, fatigue.damageFraction * 110)]} unit=" %" width={54} {...AXIS} />
           <ReferenceLine
-            x={Math.log10(Math.max(1, fatigue.cyclesToFailure))}
+            y={100}
             stroke="#e5554b"
             strokeDasharray="4 4"
-            label={{ value: "Nf", fill: "#e5554b", fontSize: 9, position: "top" }}
-          />
-          <Tooltip
-            contentStyle={{
-              background: "rgba(29,29,29,0.96)",
-              border: "1px solid #3a3a3a",
-              borderRadius: 6,
+            label={{
+              value: "D = 100% · predicted fracture",
+              fill: "#f0a8a3",
               fontSize: 10,
+              position: "insideTopRight",
             }}
-            formatter={(value) => [`${Number(value).toFixed(2)} µm`, "Permanent set"]}
-            labelFormatter={(label) => `≈10^${Number(label).toFixed(1)} cycles`}
+          />
+          <ReferenceLine
+            x={Math.log10(Math.max(1, fatigue.cyclesToFailure))}
+            stroke="#ffb020"
+            strokeDasharray="3 3"
+            label={{ value: "Nf", fill: "#ffca68", fontSize: 9, position: "top" }}
+          />
+          <Tooltip content={<ChartTooltip unit="cycles (log)" />} />
+          <Line
+            name="Fatigue damage"
+            type="monotone"
+            dataKey="damagePct"
+            stroke="#e5554b"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
           />
           <Line
+            name="Permanent shape change"
             type="monotone"
             dataKey="permanentShapeChangeUm"
             stroke="#f0803c"
-            strokeWidth={2}
+            strokeWidth={1.5}
+            strokeDasharray="4 3"
             dot={false}
             isAnimationActive={false}
           />
         </LineChart>
       </ResponsiveContainer>
       <p className="results-chart__caption">
-        Permanent bone shape change accumulating with load cycles (log scale).
+        Miner damage on {fatigue.layer} — Basquin S–N with modulus degradation (Pattin 1996).
       </p>
     </div>
   );
 }
 
-function ContactMech({ contact }: { contact: MechContactResult }) {
-  const { summary, fatigue } = contact;
-  const tone = verdictTone(summary.verdict);
+function MechPhysicsDetail({ contact }: { contact: MechContactResult }) {
+  const [open, setOpen] = useState(false);
+  const { summary, fatigue, inputs, layers } = contact;
+  const yieldedCount = layers.filter((l) => l.yielded).length;
+  const contactRadiusMm = Math.sqrt(inputs.contactAreaMm2 / Math.PI);
 
   return (
-    <article className="result-card">
-      <div className="result-card__header">
-        <strong>{contact.label}</strong>
-        <span>{summary.verdict}</span>
-      </div>
+    <section className="physics-detail">
+      <button
+        type="button"
+        className="physics-detail__toggle"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <span className={`result-section__chevron${open ? " is-open" : ""}`}>›</span>
+        Physics detail
+        <span className="physics-detail__hint">layers · protocol · stress decay</span>
+      </button>
+      {open && (
+        <div className="physics-detail__body">
+          <dl className="result-card__grid">
+            <div>
+              <dt>Applied pressure</dt>
+              <dd>{inputs.appliedPressureKpa.toFixed(1)} kPa</dd>
+            </div>
+            <div>
+              <dt>Contact area</dt>
+              <dd>
+                {inputs.contactAreaMm2.toFixed(0)} mm² (r ≈ {contactRadiusMm.toFixed(1)} mm)
+              </dd>
+            </div>
+            <div>
+              <dt>Peak contact stress</dt>
+              <dd>{formatStressKpa(summary.peakStressKpa)}</dd>
+            </div>
+            <div>
+              <dt>Max layer strain</dt>
+              <dd>{(summary.maxStrain * 100).toFixed(2)}%</dd>
+            </div>
+            <div>
+              <dt>Residual indentation</dt>
+              <dd>{summary.residualIndentationUm.toFixed(1)} µm</dd>
+            </div>
+            <div>
+              <dt>Modeled column</dt>
+              <dd>{summary.totalThicknessMm.toFixed(2)} mm</dd>
+            </div>
+            {inputs.loadingMode === "cyclic" ? (
+              <>
+                <div>
+                  <dt>Cycles</dt>
+                  <dd>{formatCycles(inputs.cycles)} @ {inputs.frequencyHz.toFixed(2)} Hz</dd>
+                </div>
+                <div>
+                  <dt>Duty cycle</dt>
+                  <dd>{(inputs.dutyCycle * 100).toFixed(0)}% load / {(100 - inputs.dutyCycle * 100).toFixed(0)}% recovery</dd>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <dt>Hold / recovery</dt>
+                  <dd>
+                    {inputs.holdS.toFixed(1)} s / {inputs.recoveryS.toFixed(1)} s
+                  </dd>
+                </div>
+                <div>
+                  <dt>Yielded layers</dt>
+                  <dd>{yieldedCount} of {layers.length}</dd>
+                </div>
+              </>
+            )}
+          </dl>
 
-      <div className={`result-headline is-${tone}`}>
-        <div className="result-headline__risk">
-          <span className="result-headline__risk-label">Mechanical outcome</span>
-          <span className={`result-badge is-${tone}`}>
-            {tone === "bad" ? "Failure" : tone === "warn" ? "Permanent" : "Reversible"}
-          </span>
-        </div>
-        <div className="result-headline__metrics">
-          <div>
-            <span>Peak indentation</span>
-            <strong>{summary.peakIndentationUm.toFixed(0)} µm</strong>
-          </div>
-          <div>
-            <span>Deformation</span>
-            <strong>{summary.deformationPercent.toFixed(1)} %</strong>
-          </div>
-          <div>
-            <span>Contact stress</span>
-            <strong>
-              {summary.peakStressKpa >= 1000
-                ? `${(summary.peakStressKpa / 1000).toFixed(1)} MPa`
-                : `${summary.peakStressKpa.toFixed(1)} kPa`}
-            </strong>
-          </div>
-          <div>
-            <span>Residual set</span>
-            <strong>{summary.residualIndentationUm.toFixed(1)} µm</strong>
-          </div>
-        </div>
-      </div>
-
-      <IndentationChart contact={contact} />
-
-      {contact.inputs.loadingMode === "cyclic" && (
-        <div className="result-bounds">
-          <div className="result-bounds__title">Repeated loading protocol</div>
-          <div className="result-bounds__row">
-            <span>Load / recovery</span>
-            <code>{(contact.inputs.dutyCycle * 100).toFixed(0)}% / {((1 - contact.inputs.dutyCycle) * 100).toFixed(0)}% of cycle</code>
-          </div>
-          <div className="result-bounds__row">
-            <span>Retained preload</span>
-            <code>{(contact.inputs.minimumPressureFraction * 100).toFixed(0)}%</code>
-          </div>
-          <div className="result-bounds__row">
-            <span>Observed duration</span>
-            <code>{contact.inputs.simulatedDurationS.toFixed(1)} s</code>
-          </div>
-          <p className="result-note is-dim">
-            The waveform models viscoelastic load and recovery. Bone fatigue remains a separate screened Basquin–Miner estimate.
-          </p>
-        </div>
-      )}
-
-      <div className="result-section">
-        <div className="result-section__body" style={{ paddingTop: 8 }}>
           <table className="result-table">
             <thead>
               <tr>
                 <th>Layer</th>
                 <th>E (MPa)</th>
                 <th>Strain</th>
+                <th>Stress</th>
                 <th>Δ (µm)</th>
               </tr>
             </thead>
             <tbody>
-              {contact.layers.map((layer) => (
+              {layers.map((layer) => (
                 <tr key={layer.name}>
                   <td title={`${layer.class} · ${layer.source}`}>
                     {layer.name}
                     {layer.yielded ? " ⚠" : ""}
                   </td>
-                  <td>{layer.youngsModulusMpa >= 1 ? layer.youngsModulusMpa.toFixed(0) : layer.youngsModulusMpa.toPrecision(2)}</td>
+                  <td>
+                    {layer.youngsModulusMpa >= 1
+                      ? layer.youngsModulusMpa.toFixed(0)
+                      : layer.youngsModulusMpa.toPrecision(2)}
+                  </td>
                   <td className={layer.yielded ? "is-bad" : ""}>
                     {(layer.peakStrain * 100).toFixed(2)}%
                   </td>
+                  <td>{formatStressKpa(layer.peakStressKpa)}</td>
                   <td>{layer.compressionUm.toFixed(1)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <p className="result-note is-dim">
-            ⚠ marks a layer whose strain exceeded its yield strain (permanent set).
-            Layers below the first bone layer are shielded by it.
-          </p>
-        </div>
-      </div>
 
-      {fatigue && (
-        <>
-          <FatigueChart contact={contact} />
-          <div className="result-bounds">
-            <div className="result-bounds__title">Cyclic fatigue · {fatigue.layer}</div>
-            <div className="result-bounds__value">
-              {(fatigue.damageFraction * 100).toFixed(1)}%
-              <span> of fatigue life used ({formatCycles(fatigue.cyclesApplied)} of {formatCycles(fatigue.cyclesToFailure)} cycles)</span>
+          {fatigue && (
+            <div className="result-bounds">
+              <div className="result-bounds__title">Cyclic fatigue · {fatigue.layer}</div>
+              <div className="result-bounds__value">
+                {(fatigue.damageFraction * 100).toFixed(1)}% of life
+                <span>
+                  {" "}
+                  ({formatCycles(fatigue.cyclesApplied)} / {formatCycles(fatigue.cyclesToFailure)} cycles)
+                </span>
+              </div>
+              <p className="result-note is-dim">{fatigue.verdict}</p>
             </div>
-            <div className="result-bounds__row">
-              <span>Stress amplitude</span>
-              <code>{fatigue.stressAmplitudeMpa.toFixed(1)} MPa</code>
-            </div>
-            <div className="result-bounds__row">
-              <span>Residual stiffness</span>
-              <code>{(fatigue.residualModulusRatio * 100).toFixed(1)}% of intact</code>
-            </div>
-            <div className="result-bounds__row">
-              <span>Permanent shape change</span>
-              <code>{fatigue.permanentShapeChangeUm.toFixed(2)} µm</code>
-            </div>
-            <p className="result-note is-dim">{fatigue.verdict}</p>
-          </div>
-        </>
-      )}
+          )}
 
-      {contact.warnings.length > 0 && (
-        <div className="result-section">
-          <div className="result-section__body" style={{ paddingTop: 8 }}>
+          {contact.warnings.length > 0 && (
             <ul className="result-warnings">
               {contact.warnings.map((w) => (
                 <li key={w}>{w}</li>
               ))}
             </ul>
-          </div>
+          )}
         </div>
       )}
+    </section>
+  );
+}
+
+function ContactMechResult({ contact }: { contact: MechContactResult }) {
+  const isCyclic = contact.inputs.loadingMode === "cyclic";
+  const [chart, setChart] = useState<"indentation" | "load" | "strain" | "fatigue">(
+    "indentation",
+  );
+
+  const tabs = [
+    { id: "indentation" as const, label: "Indentation over time" },
+    { id: "load" as const, label: "Contact load" },
+    { id: "strain" as const, label: "Strain by layer" },
+    ...(isCyclic && contact.fatigue
+      ? [{ id: "fatigue" as const, label: "Fatigue accumulation" }]
+      : []),
+  ];
+
+  return (
+    <article className="result-story">
+      <MechVerdictCard contact={contact} />
+
+      <section className="result-story__charts">
+        <div className="results-chart-tabs">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              className={`results-chart-tab${chart === tab.id ? " is-active" : ""}`}
+              onClick={() => setChart(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        {chart === "indentation" && <IndentationChart contact={contact} />}
+        {chart === "load" && <LoadChart contact={contact} />}
+        {chart === "strain" && <LayerStrainChart contact={contact} />}
+        {chart === "fatigue" && contact.fatigue && <FatigueChart contact={contact} />}
+      </section>
+
+      <MechPhysicsDetail contact={contact} />
     </article>
   );
 }
 
-export function MechanicsPanel({ result }: { result: MechanicsResult }) {
+type MechanicsPanelProps = {
+  result: MechanicsResult;
+  selectedContactId?: string | null;
+  onSelectContact?: (id: string) => void;
+};
+
+export function MechanicsPanel({
+  result,
+  selectedContactId,
+  onSelectContact,
+}: MechanicsPanelProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedId((current) => {
+      if (
+        selectedContactId &&
+        result.contacts.some((c) => c.contactPointId === selectedContactId)
+      ) {
+        return selectedContactId;
+      }
+      if (current && result.contacts.some((c) => c.contactPointId === current)) {
+        return current;
+      }
+      return result.contacts[0]?.contactPointId ?? null;
+    });
+  }, [result, selectedContactId]);
+
   const selected =
-    result.contacts.find((c) => c.contactPointId === selectedId) ?? result.contacts[0] ?? null;
+    result.contacts.find((c) => c.contactPointId === selectedId) ??
+    result.contacts[0] ??
+    null;
 
   if (!selected) {
     return (
-      <div className="sidebar__empty">
-        <div className="sidebar__empty-title">No mechanical results</div>
-        <p className="sidebar__empty-copy">
-          Assign a Pressure / mechanical load stimulus to a contact and run.
-        </p>
+      <div className="results-empty">
+        <strong>No mechanical results</strong>
+        <span>Assign a Pressure stimulus to a contact and run.</span>
       </div>
     );
   }
 
   return (
-    <div className="results-panel">
-      <div className="results-panel__notice">
-        <strong>Mechanical model</strong>
-        <span>{result.model.validationStatus}</span>
-      </div>
-
+    <>
       {result.contacts.length > 1 && (
-        <div className="results-contact-tabs" role="tablist">
+        <div className="results-contact-tabs" role="tablist" aria-label="Mechanical contacts">
           {result.contacts.map((c) => (
             <button
               type="button"
@@ -308,7 +571,10 @@ export function MechanicsPanel({ result }: { result: MechanicsResult }) {
               className={`results-contact-tab${
                 selected.contactPointId === c.contactPointId ? " is-active" : ""
               }`}
-              onClick={() => setSelectedId(c.contactPointId)}
+              onClick={() => {
+                setSelectedId(c.contactPointId);
+                onSelectContact?.(c.contactPointId);
+              }}
             >
               {c.label}
             </button>
@@ -316,21 +582,25 @@ export function MechanicsPanel({ result }: { result: MechanicsResult }) {
         </div>
       )}
 
-      <ContactMech contact={selected} />
+      <ContactMechResult contact={selected} />
+
+      {result.unsupportedContacts.length > 0 && (
+        <div className="results-panel__unsupported">
+          {result.unsupportedContacts.map((c) => (
+            <div key={c.contactPointId}>
+              {c.label} ({c.stimulusType}): {c.reason}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="results-panel__citation">
         <strong>Model</strong>
         <span>
           {result.model.name} · {result.model.version}
         </span>
-        {result.model.governingEquations.map((eq) => (
-          <code key={eq}>{eq}</code>
-        ))}
-        {result.model.citations.map((c) => (
-          <code key={c}>{c}</code>
-        ))}
         <span>{result.model.disclaimer}</span>
       </div>
-    </div>
+    </>
   );
 }

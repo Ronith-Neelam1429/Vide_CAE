@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -10,22 +10,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import type { HeatContactResult } from "../../lib/simulation";
 import {
-  exportDepthProfileCsv,
-  exportRunManifest,
-  exportTimeSeriesCsv,
-} from "../../lib/exportSimulationCsv";
-import {
-  SOLVER_PRESETS,
-  type ConvergenceReport,
-  type HeatContactResult,
-  type ResultSummary,
-  type SolverPresetId,
-  type VerificationSuite,
-} from "../../lib/simulation";
+  injuryRiskFromOmega,
+  timeToPeakBasalS,
+  verdictSentence,
+} from "../../lib/verdict";
 import { useExperimentStore } from "../../store/experimentStore";
 import { MechanicsPanel } from "./MechanicsPanel";
-import { PlaybackTimeline } from "./PlaybackTimeline";
 
 function formatSeconds(value: number | null) {
   return value === null ? "Not reached" : `${value.toFixed(2)} s`;
@@ -37,54 +29,10 @@ function formatOmega(value: number) {
   return value.toFixed(3);
 }
 
-/** Compact form of a depth-marker label for tight chart annotations. */
 function shortMarker(label: string): string {
   const beforeParen = label.split("(")[0].trim();
   const base = beforeParen.length > 0 ? beforeParen : label;
   return base.length > 16 ? `${base.slice(0, 15)}…` : base;
-}
-
-type RiskTone = "ok" | "warn" | "bad";
-
-/** At-a-glance severity, so the headline reads before any chart is expanded. */
-function riskTone(summary: ResultSummary): RiskTone {
-  if (summary.omegaDermalBase >= 1 || summary.omegaBasal >= 1) return "bad";
-  if (summary.omegaBasal >= 0.53 || summary.peakBasalTemperatureC >= 44) return "warn";
-  return "ok";
-}
-
-function Section({
-  title,
-  tone,
-  badge,
-  defaultOpen = false,
-  children,
-}: {
-  title: string;
-  tone?: "ok" | "warn" | "bad";
-  badge?: string;
-  defaultOpen?: boolean;
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-
-  return (
-    <section className="result-section">
-      <button
-        type="button"
-        className="result-section__toggle"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-      >
-        <span className={`result-section__chevron${open ? " is-open" : ""}`}>›</span>
-        <span className="result-section__title">{title}</span>
-        {badge && (
-          <span className={`result-badge${tone ? ` is-${tone}` : ""}`}>{badge}</span>
-        )}
-      </button>
-      {open && <div className="result-section__body">{children}</div>}
-    </section>
-  );
 }
 
 function ChartTooltip({
@@ -224,13 +172,85 @@ function TimeChart({ contact }: { contact: HeatContactResult }) {
 
 const OMEGA_FLOOR = 1e-9;
 
+function DamageChart({ contact }: { contact: HeatContactResult }) {
+  const data = useMemo(
+    () =>
+      contact.series.map((sample) => ({
+        timeS: sample.timeS,
+        damageOmega: Math.max(sample.damageOmega, 0),
+        omegaPlot: Math.max(sample.damageOmega, OMEGA_FLOOR),
+      })),
+    [contact.series],
+  );
+
+  const peakOmega = Math.max(...data.map((d) => d.damageOmega), 0);
+  const useLog = peakOmega > 0 && peakOmega < 0.05;
+
+  return (
+    <div className="results-chart" aria-label={`${contact.label} damage accumulation over time`}>
+      <ResponsiveContainer width="100%" height={260}>
+        <LineChart data={data} margin={{ top: 12, right: 10, bottom: 2, left: -8 }}>
+          <CartesianGrid stroke="#3d3d3d" strokeDasharray="3 3" />
+          {contact.inputs.postExposureS > 0 && (
+            <ReferenceArea
+              x1={0}
+              x2={contact.inputs.exposureS}
+              fill="#e5554b"
+              fillOpacity={0.05}
+            />
+          )}
+          <XAxis dataKey="timeS" type="number" unit=" s" {...AXIS} />
+          <YAxis
+            domain={useLog ? [OMEGA_FLOOR, "auto"] : [0, Math.max(1.05, peakOmega * 1.15)]}
+            scale={useLog ? "log" : "auto"}
+            width={64}
+            tickFormatter={(value: number) =>
+              value >= 0.01 || value === 0 ? value.toFixed(2) : value.toExponential(0)
+            }
+            {...AXIS}
+          />
+          <ReferenceLine
+            y={1}
+            stroke="#e5554b"
+            strokeDasharray="4 4"
+            label={{
+              value: "Ω = 1 · irreversible injury threshold",
+              fill: "#f0a8a3",
+              fontSize: 10,
+              position: "insideTopRight",
+            }}
+          />
+          <Tooltip content={<ChartTooltip unit="s" />} />
+          <Line
+            name="Damage Ω (basal)"
+            type="monotone"
+            dataKey={useLog ? "omegaPlot" : "damageOmega"}
+            stroke="#e5554b"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+      <div className="results-chart__legend">
+        <span>
+          <i style={{ background: "#e5554b" }} />
+          Damage Ω (basal layer)
+        </span>
+      </div>
+      <p className="results-chart__caption">
+        Henriques damage integral accumulates during contact and while skin cools afterward.
+        Ω = 1.0 is the irreversible-injury threshold.
+      </p>
+    </div>
+  );
+}
+
 function DepthChart({ contact }: { contact: HeatContactResult }) {
   const data = useMemo(
     () =>
       contact.depthProfile.map((sample) => ({
         ...sample,
-        // A log axis cannot render zeros, so clamp to a floor well below any
-        // meaningful damage level.
         omegaPlot: Math.max(sample.damageOmega, OMEGA_FLOOR),
       })),
     [contact.depthProfile],
@@ -239,7 +259,7 @@ function DepthChart({ contact }: { contact: HeatContactResult }) {
   const hasDamage = contact.depthProfile.some((sample) => sample.damageOmega > OMEGA_FLOOR);
 
   return (
-    <div className="results-chart" aria-label={`${contact.label} profile with depth`}>
+    <div className="results-chart" aria-label={`${contact.label} depth profile at peak`}>
       <ResponsiveContainer width="100%" height={260}>
         <LineChart data={data} margin={{ top: 12, right: 4, bottom: 2, left: -18 }}>
           <CartesianGrid stroke="#3d3d3d" strokeDasharray="3 3" />
@@ -341,133 +361,92 @@ function DepthChart({ contact }: { contact: HeatContactResult }) {
           </span>
         )}
       </div>
+      <p className="results-chart__caption">
+        Peak temperatures across depth during the run; final is end-of-simulation.
+      </p>
     </div>
   );
 }
 
-function VerificationStrip({ suite }: { suite: VerificationSuite }) {
+function VerdictCard({ contact }: { contact: HeatContactResult }) {
+  const { summary } = contact;
+  const { level, tone } = injuryRiskFromOmega(summary.omegaBasal, summary.omegaDermalBase);
+  const peakTime = timeToPeakBasalS(contact.series);
+  const sentence = verdictSentence(summary, peakTime);
+
   return (
-    <Section
-      title="Solver verification"
-      tone={suite.passed ? "ok" : "bad"}
-      badge={suite.passed ? "All cases pass" : "FAILING"}
-    >
-      <p className="result-note">{suite.summary}</p>
-      <table className="result-table">
-        <thead>
-          <tr>
-            <th>Case</th>
-            <th>Error</th>
-            <th>Tolerance</th>
-          </tr>
-        </thead>
-        <tbody>
-          {suite.cases.map((entry) => (
-            <tr key={entry.id}>
-              <td title={`${entry.description}\n\n${entry.reference}`}>{entry.name}</td>
-              <td className={entry.passed ? "is-ok" : "is-bad"}>
-                {entry.error.toExponential(2)}
-              </td>
-              <td>{entry.tolerance.toExponential(1)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="result-note is-dim">{suite.scope}</p>
-    </Section>
+    <section className={`verdict-card is-${tone}`} aria-live="polite">
+      <div className="verdict-card__top">
+        <div className="verdict-card__identity">
+          <strong>{contact.label}</strong>
+          <span>{contact.skinProfile.label}</span>
+        </div>
+        <div className={`verdict-card__badge is-${tone}`}>
+          <span className="verdict-card__badge-label">Injury risk</span>
+          <span className="verdict-card__badge-value">{level}</span>
+          <span className="verdict-card__badge-threshold">Ω threshold = 1.0</span>
+        </div>
+      </div>
+
+      <p className="verdict-card__sentence">{sentence}</p>
+
+      <div className="verdict-card__hero">
+        <div className="verdict-card__hero-main">
+          <span className="verdict-card__hero-label">Peak basal-layer temperature</span>
+          <strong className="verdict-card__hero-value">
+            {summary.peakBasalTemperatureC.toFixed(1)}
+            <span> °C</span>
+          </strong>
+        </div>
+        <div className="verdict-card__hero-side">
+          <div>
+            <span>Time to 44 °C</span>
+            <strong>{formatSeconds(summary.timeTo44cS)}</strong>
+          </div>
+          <div>
+            <span>Damage Ω</span>
+            <strong>
+              {formatOmega(summary.omegaBasal)}
+              <em> / 1.0</em>
+            </strong>
+          </div>
+          <div>
+            <span>Peak surface</span>
+            <strong className="is-secondary">
+              {summary.peakSurfaceTemperatureC.toFixed(1)} °C
+            </strong>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
-function ConvergencePanel({ report }: { report: ConvergenceReport }) {
-  return (
-    <Section
-      title="Mesh and timestep convergence"
-      tone={report.converged ? "ok" : "warn"}
-      badge={report.converged ? "Converged" : "Not converged"}
-    >
-      <p className="result-note">{report.note}</p>
-      <table className="result-table">
-        <thead>
-          <tr>
-            <th>Quantity</th>
-            <th>Change on refinement</th>
-            <th>Order</th>
-          </tr>
-        </thead>
-        <tbody>
-          {report.metrics.map((metric) => (
-            <tr key={metric.name}>
-              <td>{metric.name}</td>
-              <td className={metric.converged ? "is-ok" : "is-bad"}>
-                {(metric.relativeChange * 100).toPrecision(2)} %
-              </td>
-              <td>
-                {metric.observedOrder === null ? "—" : metric.observedOrder.toFixed(2)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </Section>
-  );
-}
-
-function ContactResult({ contact }: { contact: HeatContactResult }) {
-  const [chart, setChart] = useState<"time" | "depth">("time");
-  const { summary, bounds, dimensionality, energy } = contact;
-  const tone = riskTone(summary);
-  const toneLabel =
-    tone === "bad" ? "High" : tone === "warn" ? "Elevated" : "Low";
+function PhysicsDetail({ contact }: { contact: HeatContactResult }) {
+  const [open, setOpen] = useState(false);
+  const { summary, bounds } = contact;
 
   return (
-    <article className="result-card">
-      <div className="result-card__split">
-        <div className="result-card__metrics">
-          <div className="result-card__header">
-            <strong>{contact.label}</strong>
-            <span>{summary.riskClassification}</span>
-          </div>
-
-          <div className={`result-headline is-${tone}`}>
-            <div className="result-headline__risk">
-              <span className="result-headline__risk-label">Injury risk</span>
-              <span className={`result-badge is-${tone}`}>{toneLabel}</span>
-            </div>
-            <div className="result-headline__metrics">
-              <div>
-                <span>Device</span>
-                <strong>{contact.inputs.deviceSetpointC.toFixed(1)} °C</strong>
-              </div>
-              <div>
-                <span>Peak skin</span>
-                <strong>{summary.peakSurfaceTemperatureC.toFixed(1)} °C</strong>
-              </div>
-              <div>
-                <span>Peak {shortMarker(contact.skinProfile.shallowMarkerLabel)}</span>
-                <strong>{summary.peakBasalTemperatureC.toFixed(1)} °C</strong>
-              </div>
-              <div>
-                <span>Time to 44 °C</span>
-                <strong>{formatSeconds(summary.timeTo44cS)}</strong>
-              </div>
-              <div>
-                <span>Damage Ω</span>
-                <strong>{formatOmega(summary.omegaBasal)}</strong>
-              </div>
-              <div>
-                <span>Energy</span>
-                <strong>{summary.totalEnergyDeliveredJ.toFixed(2)} J</strong>
-              </div>
-            </div>
-          </div>
-
-          <dl className="result-card__grid result-card__grid--compact">
+    <section className="physics-detail">
+      <button
+        type="button"
+        className="physics-detail__toggle"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <span className={`result-section__chevron${open ? " is-open" : ""}`}>›</span>
+        Physics detail
+        <span className="physics-detail__hint">deep temp · energy · uncertainty</span>
+      </button>
+      {open && (
+        <div className="physics-detail__body">
+          <dl className="result-card__grid">
             <div>
               <dt>Peak deep</dt>
               <dd>{summary.peakDermalBaseTemperatureC.toFixed(2)} °C</dd>
             </div>
             <div>
-              <dt>Damage depth</dt>
+              <dt>Damage depth (Ω = 1)</dt>
               <dd>
                 {summary.damageDepthMm === null
                   ? "None"
@@ -475,248 +454,77 @@ function ContactResult({ contact }: { contact: HeatContactResult }) {
               </dd>
             </div>
             <div>
-              <dt>Conductance</dt>
-              <dd>{contact.inputs.contactConductanceWPerM2K.toPrecision(3)} W/m²K</dd>
+              <dt>Contact conductance</dt>
+              <dd>{contact.inputs.contactConductanceWPerM2K.toPrecision(4)} W/m²K</dd>
             </div>
             <div>
-              <dt>Peak flux</dt>
-              <dd>{summary.peakSurfaceFluxWPerM2.toPrecision(3)} W/m²</dd>
+              <dt>Peak surface flux</dt>
+              <dd>{summary.peakSurfaceFluxWPerM2.toPrecision(4)} W/m²</dd>
+            </div>
+            <div>
+              <dt>Energy delivered</dt>
+              <dd>{summary.totalEnergyDeliveredJ.toPrecision(4)} J</dd>
+            </div>
+            <div>
+              <dt>Device setpoint</dt>
+              <dd>{contact.inputs.deviceSetpointC.toFixed(1)} °C</dd>
             </div>
           </dl>
-
           <div className="result-bounds">
-            <div className="result-bounds__title">
-              Peak basal · uncertainty
-            </div>
+            <div className="result-bounds__title">Peak basal · uncertainty</div>
             <div className="result-bounds__value">
               {bounds.nominalPeakBasalC.toFixed(2)} °C
               <span>
                 {" "}
                 ({bounds.sensitivityLowPeakBasalC.toFixed(2)} –{" "}
-                {bounds.sensitivityHighPeakBasalC.toFixed(2)} °C)
+                {bounds.sensitivityHighPeakBasalC.toFixed(2)} °C across tissue-property ranges)
               </span>
             </div>
+            <p className="result-note is-dim">{bounds.note}</p>
           </div>
         </div>
+      )}
+    </section>
+  );
+}
 
-        <div className="result-card__chart">
-          <div className="results-chart-tabs">
-            <button
-              type="button"
-              className={`results-chart-tab${chart === "time" ? " is-active" : ""}`}
-              onClick={() => setChart("time")}
-            >
-              Over time
-            </button>
-            <button
-              type="button"
-              className={`results-chart-tab${chart === "depth" ? " is-active" : ""}`}
-              onClick={() => setChart("depth")}
-            >
-              With depth
-            </button>
-          </div>
-          {chart === "time" ? <TimeChart contact={contact} /> : <DepthChart contact={contact} />}
-        </div>
-      </div>
+function ContactResult({ contact }: { contact: HeatContactResult }) {
+  const [chart, setChart] = useState<"temperature" | "damage" | "depth">("temperature");
 
-      <div className="result-card__details">
-        <Section
-          title="1D validity"
-          tone={
-            dimensionality.verdict === "1D assumption well satisfied"
-              ? "ok"
-              : dimensionality.verdict === "1D assumption marginal"
-                ? "warn"
-                : "bad"
-          }
-          badge={dimensionality.verdict.replace("1D assumption ", "")}
-        >
-          <dl className="result-card__grid">
-            <div>
-              <dt>Contact radius</dt>
-              <dd>{dimensionality.contactRadiusMm.toPrecision(3)} mm</dd>
-            </div>
-            <div>
-              <dt>Penetration depth</dt>
-              <dd>{dimensionality.penetrationDepthMm.toPrecision(3)} mm</dd>
-            </div>
-            <div>
-              <dt>Fourier number</dt>
-              <dd>{dimensionality.fourierNumber.toPrecision(3)}</dd>
-            </div>
-            <div>
-              <dt>Retained rise</dt>
-              <dd>{(dimensionality.spreadingFactor * 100).toFixed(1)} %</dd>
-            </div>
-          </dl>
-          <p className="result-note">{dimensionality.guidance}</p>
-        </Section>
+  return (
+    <article className="result-story">
+      <VerdictCard contact={contact} />
 
-        {contact.convergence && <ConvergencePanel report={contact.convergence} />}
-
-        <Section
-          title="Energy balance"
-          tone={energy.balanced ? "ok" : "bad"}
-          badge={energy.balanced ? "Closed" : "Unbalanced"}
-        >
-          <dl className="result-card__grid">
-            <div>
-              <dt>In at surface</dt>
-              <dd>{energy.surfaceInJPerM2.toPrecision(4)} J/m²</dd>
-            </div>
-            <div>
-              <dt>Stored in tissue</dt>
-              <dd>{energy.storedJPerM2.toPrecision(4)} J/m²</dd>
-            </div>
-            <div>
-              <dt>Removed by perfusion</dt>
-              <dd>{energy.perfusionOutJPerM2.toPrecision(4)} J/m²</dd>
-            </div>
-            <div>
-              <dt>Out at deep boundary</dt>
-              <dd>{energy.coreOutJPerM2.toPrecision(4)} J/m²</dd>
-            </div>
-            <div>
-              <dt>Metabolic input</dt>
-              <dd>{energy.metabolicInJPerM2.toPrecision(4)} J/m²</dd>
-            </div>
-            <div>
-              <dt>Relative residual</dt>
-              <dd>{energy.relativeResidual.toExponential(2)}</dd>
-            </div>
-          </dl>
-        </Section>
-
-        {contact.sensitivity.length > 0 && (
-          <Section title="Sensitivity" badge={`${contact.sensitivity.length} parameters`}>
-            <p className="result-note">
-              Each row varies one property across its tabulated range with everything
-              else held fixed. Rows are ordered by how much they move the answer.
-            </p>
-            <table className="result-table">
-              <thead>
-                <tr>
-                  <th>Parameter</th>
-                  <th>Range</th>
-                  <th>Peak basal span</th>
-                </tr>
-              </thead>
-              <tbody>
-                {contact.sensitivity.slice(0, 8).map((entry) => (
-                  <tr key={entry.parameter}>
-                    <td>{entry.parameter}</td>
-                    <td>
-                      {entry.low.toPrecision(3)} – {entry.high.toPrecision(3)} {entry.unit}
-                    </td>
-                    <td>{entry.peakBasalSpanC.toFixed(2)} °C</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Section>
-        )}
-
-        {contact.warnings.length > 0 && (
-          <Section
-            title="Caveats"
-            tone="warn"
-            badge={String(contact.warnings.length)}
-            defaultOpen
+      <section className="result-story__charts">
+        <div className="results-chart-tabs">
+          <button
+            type="button"
+            className={`results-chart-tab${chart === "temperature" ? " is-active" : ""}`}
+            onClick={() => setChart("temperature")}
           >
-            <ul className="result-warnings">
-              {contact.warnings.map((warning) => (
-                <li key={warning}>{warning}</li>
-              ))}
-            </ul>
-          </Section>
-        )}
+            Temperature over time
+          </button>
+          <button
+            type="button"
+            className={`results-chart-tab${chart === "damage" ? " is-active" : ""}`}
+            onClick={() => setChart("damage")}
+          >
+            Damage accumulation
+          </button>
+          <button
+            type="button"
+            className={`results-chart-tab${chart === "depth" ? " is-active" : ""}`}
+            onClick={() => setChart("depth")}
+          >
+            Depth profile (at peak)
+          </button>
+        </div>
+        {chart === "temperature" && <TimeChart contact={contact} />}
+        {chart === "damage" && <DamageChart contact={contact} />}
+        {chart === "depth" && <DepthChart contact={contact} />}
+      </section>
 
-        <Section title="Inputs and provenance">
-          <div className="result-provenance">
-            <div>
-              <strong>{contact.skinProfile.label}</strong>
-              <span>{contact.skinProfile.description}</span>
-            </div>
-            <table className="result-table">
-              <thead>
-                <tr>
-                  <th>Layer</th>
-                  <th>Thickness</th>
-                  <th>k</th>
-                  <th>Perfusion</th>
-                </tr>
-              </thead>
-              <tbody>
-                {contact.skinProfile.layers.map((layer) => (
-                  <tr key={layer.name}>
-                    <td title={layer.thicknessM.source}>{layer.name}</td>
-                    <td>{(layer.thicknessM.value * 1000).toPrecision(3)} mm</td>
-                    <td>{layer.conductivityWPerMK.value.toPrecision(3)}</td>
-                    <td>{layer.perfusionPerS.value.toPrecision(2)} /s</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            <dl className="result-card__grid">
-              <div>
-                <dt>Interface</dt>
-                <dd>{contact.interfaceMaterial.label}</dd>
-              </div>
-              <div>
-                <dt>Device</dt>
-                <dd>{contact.deviceMaterial.label}</dd>
-              </div>
-              <div>
-                <dt>Control</dt>
-                <dd>{contact.inputs.deviceControl}</dd>
-              </div>
-              <div>
-                <dt>Contact method</dt>
-                <dd>{contact.contact.method}</dd>
-              </div>
-              <div>
-                <dt>Solver</dt>
-                <dd>
-                  {contact.solver.solverDimensionRequested === "auto"
-                    ? `Auto → ${contact.solver.solverDimension}`
-                    : contact.solver.solverDimension}
-                  {contact.solver.radialDomainMm != null
-                    ? ` · r ≤ ${contact.solver.radialDomainMm.toFixed(0)} mm`
-                    : ""}
-                </dd>
-              </div>
-              <div>
-                <dt>Mesh</dt>
-                <dd>
-                  {contact.solver.cellCount} cells to{" "}
-                  {contact.solver.domainDepthMm.toFixed(1)} mm
-                </dd>
-              </div>
-              <div>
-                <dt>Steps</dt>
-                <dd>{contact.solver.stepCount.toLocaleString()}</dd>
-              </div>
-            </dl>
-
-            <p className="result-note is-dim">{contact.solver.scheme}</p>
-            {contact.radialProfile.length > 0 ? (
-              <p className="result-note">
-                Surface temperature varies {contact.radialProfile[0]?.peakSurfaceTemperatureC.toFixed(1)}–
-                {contact.radialProfile[contact.radialProfile.length - 1]?.peakSurfaceTemperatureC.toFixed(1)} °C
-                across the contact disc (axisymmetric).
-              </p>
-            ) : null}
-            <p className="result-note is-dim">{contact.damageModel.citation}</p>
-            {contact.skinProfile.citations.map((citation) => (
-              <p key={citation} className="result-note is-dim">
-                {citation}
-              </p>
-            ))}
-          </div>
-        </Section>
-      </div>
+      <PhysicsDetail contact={contact} />
     </article>
   );
 }
@@ -726,9 +534,8 @@ export function ResultsPanel() {
   const mechanics = useExperimentStore((s) => s.mechanicsResult);
   const status = useExperimentStore((s) => s.simulationStatus);
   const error = useExperimentStore((s) => s.simulationError);
-  const clear = useExperimentStore((s) => s.clearSimulation);
-  const solverPreset = useExperimentStore((s) => s.solverPreset);
-  const setSolverPreset = useExperimentStore((s) => s.setSolverPreset);
+  const selectedContactId = useExperimentStore((s) => s.selectedContactId);
+  const selectContact = useExperimentStore((s) => s.selectContact);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const hasThermal = !!result && result.contacts.length > 0;
@@ -745,13 +552,19 @@ export function ResultsPanel() {
       setSelectedId(null);
       return;
     }
-
-    setSelectedId((current) =>
-      result.contacts.some((contact) => contact.contactPointId === current)
-        ? current
-        : (result.contacts[0]?.contactPointId ?? null),
-    );
-  }, [result]);
+    setSelectedId((current) => {
+      if (
+        selectedContactId &&
+        result.contacts.some((c) => c.contactPointId === selectedContactId)
+      ) {
+        return selectedContactId;
+      }
+      if (current && result.contacts.some((c) => c.contactPointId === current)) {
+        return current;
+      }
+      return result.contacts[0]?.contactPointId ?? null;
+    });
+  }, [result, selectedContactId]);
 
   const selected = useMemo(
     () =>
@@ -761,76 +574,8 @@ export function ResultsPanel() {
     [result, selectedId],
   );
 
-  const thermalDuration = useMemo(() => {
-    if (!result) return 0;
-    return result.contacts.reduce((max, c) => {
-      const last = c.series[c.series.length - 1]?.timeS ?? 0;
-      return Math.max(max, last);
-    }, 0);
-  }, [result]);
-
-  const mechDuration = useMemo(() => {
-    if (!mechanics) return 0;
-    return mechanics.contacts.reduce((max, c) => {
-      const last = c.indentationSeries[c.indentationSeries.length - 1]?.timeS ?? 0;
-      return Math.max(max, last);
-    }, 0);
-  }, [mechanics]);
-
   return (
     <div className="results-panel">
-      <div className="results-panel__top">
-        <label className="results-panel__accuracy">
-          <span>Accuracy</span>
-          <select
-            className="stimulus-form__select"
-            value={solverPreset}
-            onChange={(event) => setSolverPreset(event.target.value as SolverPresetId)}
-          >
-            {Object.entries(SOLVER_PRESETS).map(([id, preset]) => (
-              <option key={id} value={id}>
-                {preset.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {(hasThermal || hasMech) && (
-          <div className="results-panel__top-actions">
-            <div className="results-panel__exports">
-              {hasThermal && result && (
-                <>
-                  <button
-                    type="button"
-                    className="results-panel__export"
-                    onClick={() => exportTimeSeriesCsv(result)}
-                  >
-                    Time series
-                  </button>
-                  <button
-                    type="button"
-                    className="results-panel__export"
-                    onClick={() => exportDepthProfileCsv(result)}
-                  >
-                    Depth
-                  </button>
-                  <button
-                    type="button"
-                    className="results-panel__export"
-                    onClick={() => exportRunManifest(result)}
-                  >
-                    Manifest
-                  </button>
-                </>
-              )}
-            </div>
-            <button type="button" className="sidebar__btn sidebar__btn--compact" onClick={clear}>
-              Clear run
-            </button>
-          </div>
-        )}
-      </div>
-
       {error && (
         <div className="sidebar__error" role="alert">
           {error}
@@ -840,14 +585,12 @@ export function ResultsPanel() {
       {!hasThermal && !hasMech && status !== "running" && !error && (
         <div className="results-empty">
           <strong>No run yet</strong>
-          <span>Place a stimulus, then press Run in the scene bar. Charts appear here.</span>
+          <span>Place a stimulus, then press Run in the scene bar.</span>
         </div>
       )}
 
       {status === "running" && (
-        <div className="results-panel__running">
-          Solving the layered tissue response…
-        </div>
+        <div className="results-panel__running">Solving the layered tissue response…</div>
       )}
 
       {hasThermal && hasMech && (
@@ -873,36 +616,18 @@ export function ResultsPanel() {
         </div>
       )}
 
-      {hasMech && view === "mechanical" && (
-        <>
-          {mechDuration > 0 && (
-            <PlaybackTimeline durationS={mechDuration} label="Indentation over time" />
-          )}
-          <MechanicsPanel result={mechanics!} />
-        </>
+      {hasMech && view === "mechanical" && mechanics && (
+        <MechanicsPanel
+          result={mechanics}
+          selectedContactId={selectedContactId}
+          onSelectContact={selectContact}
+        />
       )}
 
       {hasThermal && view === "thermal" && result && (
         <>
-          <div className="results-panel__toolbar">
-            <span className="results-panel__run-label">
-              {result.contacts.length} heat contact
-              {result.contacts.length === 1 ? "" : "s"} ·{" "}
-              {new Date(result.manifest.generatedAtUnixMs).toLocaleTimeString()}
-            </span>
-            {thermalDuration > 0 && (
-              <div className="results-panel__playback">
-                <PlaybackTimeline durationS={thermalDuration} label="Playback" />
-              </div>
-            )}
-          </div>
-
           {result.contacts.length > 1 && (
-            <div
-              className="results-contact-tabs"
-              role="tablist"
-              aria-label="Heat contact results"
-            >
+            <div className="results-contact-tabs" role="tablist" aria-label="Heat contact results">
               {result.contacts.map((contact) => (
                 <button
                   type="button"
@@ -912,7 +637,10 @@ export function ResultsPanel() {
                   className={`results-contact-tab${
                     selected?.contactPointId === contact.contactPointId ? " is-active" : ""
                   }`}
-                  onClick={() => setSelectedId(contact.contactPointId)}
+                  onClick={() => {
+                    setSelectedId(contact.contactPointId);
+                    selectContact(contact.contactPointId);
+                  }}
                 >
                   {contact.label}
                 </button>
@@ -921,10 +649,6 @@ export function ResultsPanel() {
           )}
 
           {selected && <ContactResult contact={selected} />}
-
-          <div className="results-panel__footer">
-            <VerificationStrip suite={result.manifest.verification} />
-          </div>
 
           {result.unsupportedContacts.length > 0 && (
             <div className="results-panel__unsupported">
@@ -941,7 +665,9 @@ export function ResultsPanel() {
             <span>
               {result.model.name} · {result.model.version}
             </span>
-            <span>{result.model.disclaimer}</span>
+            <span>
+              Model diagnostics moved to Proof lab · {result.model.disclaimer}
+            </span>
           </div>
         </>
       )}
