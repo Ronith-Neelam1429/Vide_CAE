@@ -18,7 +18,12 @@ export type MechLayerResult = {
 export type IndentSample = {
   timeS: number;
   indentationUm: number;
-  phase: "loading" | "recovery" | "cyclic-loading" | "cyclic-recovery";
+  phase:
+    | "loading"
+    | "recovery"
+    | "cyclic-loading"
+    | "cyclic-recovery"
+    | "cyclic-release";
   cycle: number | null;
   appliedPressureKpa: number;
 };

@@ -183,7 +183,7 @@ export type ThermalSample = {
   /** Whether a regulated controller hit its configured power ceiling. */
   controllerSaturated: boolean;
   surfaceFluxWPerM2: number;
-  phase: "baseline" | "exposure" | "cooling";
+  phase: "baseline" | "exposure" | "cooling" | "hold" | "ramp" | "release";
 };
 
 export type DepthSample = {

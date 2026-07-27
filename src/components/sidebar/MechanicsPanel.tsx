@@ -16,11 +16,21 @@ import {
 import {
   formatStressKpa,
   mechRiskFromSummary,
-  mechVerdictSentence,
   recoveryRatio,
-  timeToPeakIndentationS,
 } from "../../lib/mechVerdict";
 import type { MechContactResult, MechanicsResult } from "../../lib/mechanics";
+import {
+  mechanicalSafetyBudget,
+  mechanicalSynthesis,
+} from "../../lib/resultMetrics";
+import { LayeredCrossSection } from "../results/LayeredCrossSection";
+import { PhaseStrip } from "../results/PhaseStrip";
+import {
+  DeepDive,
+  SafetyBudgetBar,
+  StoryMetric,
+  StoryMetrics,
+} from "../results/ResultsTier";
 
 const AXIS = {
   tick: { fill: "#909090", fontSize: 10 },
@@ -64,12 +74,10 @@ function ChartTooltip({
 function MechVerdictCard({ contact }: { contact: MechContactResult }) {
   const { summary, fatigue } = contact;
   const { level, tone } = mechRiskFromSummary(summary, fatigue);
-  const sentence = mechVerdictSentence(contact);
-  const recovery = recoveryRatio(summary);
-  const peakTime = timeToPeakIndentationS(contact.indentationSeries);
 
   return (
-    <section className={`verdict-card is-${tone}`} aria-live="polite">
+    <section className={`verdict-card results-verdict is-${tone}`} aria-live="polite">
+      <div className="result-tier-label">Verdict</div>
       <div className="verdict-card__top">
         <div className="verdict-card__identity">
           <strong>{contact.label}</strong>
@@ -111,40 +119,79 @@ function MechVerdictCard({ contact }: { contact: MechContactResult }) {
         </div>
       </div>
 
-      <p className="verdict-card__sentence">{sentence}</p>
-
-      <div className="verdict-card__hero">
-        <div className="verdict-card__hero-main">
-          <span className="verdict-card__hero-label">Peak indentation</span>
-          <strong className="verdict-card__hero-value">
-            {summary.peakIndentationUm.toFixed(0)}
-            <span> µm</span>
-          </strong>
-        </div>
-        <div className="verdict-card__hero-side">
-          <div>
-            <span>Recovery</span>
-            <strong>{(recovery * 100).toFixed(0)}%</strong>
-          </div>
-          <div>
-            <span>Peak stress</span>
-            <strong>{formatStressKpa(summary.peakStressKpa)}</strong>
-          </div>
-          <div>
-            <span>Column strain</span>
-            <strong className="is-secondary">
-              {summary.deformationPercent.toFixed(1)}%
-            </strong>
-          </div>
-          {peakTime !== null && (
-            <div>
-              <span>Time to peak</span>
-              <strong className="is-secondary">{peakTime.toFixed(1)} s</strong>
-            </div>
-          )}
-        </div>
-      </div>
+      <p className="verdict-card__sentence">{mechanicalSynthesis(contact)}</p>
+      <SafetyBudgetBar budget={mechanicalSafetyBudget(contact)} />
     </section>
+  );
+}
+
+function MechanicalStory({ contact }: { contact: MechContactResult }) {
+  const { summary, fatigue, pressureInjury } = contact;
+  if (fatigue) {
+    return (
+      <StoryMetrics>
+        <StoryMetric
+          primary
+          label="Cycles applied"
+          value={formatCycles(fatigue.cyclesApplied)}
+          note={`${formatCycles(fatigue.cyclesToFailure)} predicted cycles to failure`}
+        />
+        <StoryMetric label="Miner damage" value={(fatigue.damageFraction * 100).toFixed(1)} unit="%" note="D = 1.0 predicts failure" />
+        <StoryMetric label="Fatigue verdict" value={fatigue.verdict} note={fatigue.confidence} />
+        <StoryMetric label="Peak indentation" value={summary.peakIndentationUm.toFixed(0)} unit="µm" />
+      </StoryMetrics>
+    );
+  }
+
+  return (
+    <StoryMetrics>
+      <StoryMetric
+        primary
+        label="Threshold ratio"
+        value={pressureInjury ? (pressureInjury.thresholdRatio * 100).toFixed(0) : "—"}
+        unit={pressureInjury ? "%" : undefined}
+        note={pressureInjury?.classification}
+      />
+      <StoryMetric label="Peak indentation" value={summary.peakIndentationUm.toFixed(0)} unit="µm" />
+      <StoryMetric label="Recovery" value={(recoveryRatio(summary) * 100).toFixed(0)} unit="%" />
+      <StoryMetric label="Applied pressure" value={contact.inputs.appliedPressureKpa.toFixed(1)} unit="kPa" note={pressureInjury ? `${(pressureInjury.durationMinutes / 60).toFixed(2)} h hold` : undefined} />
+    </StoryMetrics>
+  );
+}
+
+function MechanicalLayerSlab({ contact }: { contact: MechContactResult }) {
+  const bands = useMemo(() => {
+    let depth = 0;
+    return contact.layers.map((layer) => {
+      const start = depth;
+      depth += layer.thicknessMm;
+      return {
+        layerName: layer.name,
+        depthStartMm: start,
+        depthEndMm: depth,
+        value: layer.peakStressKpa,
+      };
+    });
+  }, [contact.layers]);
+
+  if (bands.length === 0) return null;
+
+  const values = bands.map((band) => band.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+
+  return (
+    <LayeredCrossSection
+      title="Layers by peak stress"
+      bands={bands}
+      unit="kPa"
+      colorScale={{
+        min,
+        max: max === min ? max * 1.01 || 1 : max,
+        stops: ["#2a2a2a", "#7a5a28", "#e3b341", "#f08c69", "#e5534b"],
+      }}
+      valueFormatter={(value) => value.toFixed(1)}
+    />
   );
 }
 
@@ -253,6 +300,11 @@ function IndentationChart({ contact }: { contact: MechContactResult }) {
           />
         </LineChart>
       </ResponsiveContainer>
+      <PhaseStrip
+        samples={contact.indentationSeries}
+        insetLeftPx={48}
+        insetRightPx={10}
+      />
       <p className="results-chart__caption">
         {isCyclic
           ? `Cyclic load/recovery at ${contact.inputs.frequencyHz.toFixed(2)} Hz · ${formatCycles(contact.inputs.cycles)} cycles.`
@@ -425,25 +477,17 @@ function FatigueChart({ contact }: { contact: MechContactResult }) {
 }
 
 function MechPhysicsDetail({ contact }: { contact: MechContactResult }) {
-  const [open, setOpen] = useState(false);
   const { summary, fatigue, inputs, layers } = contact;
   const yieldedCount = layers.filter((l) => l.yielded).length;
   const contactRadiusMm = Math.sqrt(inputs.contactAreaMm2 / Math.PI);
 
   return (
-    <section className="physics-detail">
-      <button
-        type="button"
-        className="physics-detail__toggle"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-      >
-        <span className={`result-section__chevron${open ? " is-open" : ""}`}>›</span>
-        Physics detail
-        <span className="physics-detail__hint">layers · protocol · stress decay</span>
-      </button>
-      {open && (
-        <div className="physics-detail__body">
+    <section className="physics-detail deep-dive__section">
+      <div className="physics-detail__header">
+        <strong>Mechanical model</strong>
+        <span>layers · protocol · stress · permanent set</span>
+      </div>
+      <div className="physics-detail__body">
           <dl className="result-card__grid">
             <div>
               <dt>Applied pressure</dt>
@@ -466,6 +510,10 @@ function MechPhysicsDetail({ contact }: { contact: MechContactResult }) {
             <div>
               <dt>Residual indentation</dt>
               <dd>{summary.residualIndentationUm.toFixed(1)} µm</dd>
+            </div>
+            <div>
+              <dt>Column compression</dt>
+              <dd>{summary.deformationPercent.toFixed(2)}%</dd>
             </div>
             <div>
               <dt>Modeled column</dt>
@@ -506,6 +554,7 @@ function MechPhysicsDetail({ contact }: { contact: MechContactResult }) {
                 <th>Strain</th>
                 <th>Stress</th>
                 <th>Δ (µm)</th>
+                <th>Residual strain</th>
               </tr>
             </thead>
             <tbody>
@@ -525,6 +574,7 @@ function MechPhysicsDetail({ contact }: { contact: MechContactResult }) {
                   </td>
                   <td>{formatStressKpa(layer.peakStressKpa)}</td>
                   <td>{layer.compressionUm.toFixed(1)}</td>
+                  <td>{(layer.residualStrain * 100).toFixed(3)}%</td>
                 </tr>
               ))}
             </tbody>
@@ -543,6 +593,14 @@ function MechPhysicsDetail({ contact }: { contact: MechContactResult }) {
               <p className="result-note is-dim">
                 {fatigue.verdict} · {fatigue.confidence}
               </p>
+              <div className="result-bounds__row">
+                <span>Stress / strain amplitude</span>
+                <code>{fatigue.stressAmplitudeMpa.toFixed(3)} MPa / {(fatigue.strainAmplitude * 100).toFixed(3)}%</code>
+              </div>
+              <div className="result-bounds__row">
+                <span>Residual modulus / permanent shape</span>
+                <code>{(fatigue.residualModulusRatio * 100).toFixed(1)}% / {fatigue.permanentShapeChangeUm.toFixed(2)} µm</code>
+              </div>
               <p className="result-note is-dim">{fatigue.basis}</p>
             </div>
           )}
@@ -554,8 +612,7 @@ function MechPhysicsDetail({ contact }: { contact: MechContactResult }) {
               ))}
             </ul>
           )}
-        </div>
-      )}
+      </div>
     </section>
   );
 }
@@ -563,13 +620,10 @@ function MechPhysicsDetail({ contact }: { contact: MechContactResult }) {
 function ContactMechResult({ contact }: { contact: MechContactResult }) {
   const isCyclic = contact.inputs.loadingMode === "cyclic";
   const [chart, setChart] = useState<
-    "indentation" | "load" | "strain" | "pressure-risk" | "fatigue"
-  >(
-    "indentation",
-  );
+    "load" | "strain" | "pressure-risk" | "fatigue"
+  >("load");
 
   const tabs = [
-    { id: "indentation" as const, label: "Indentation over time" },
     { id: "load" as const, label: "Contact load" },
     { id: "strain" as const, label: "Strain by layer" },
     ...(!isCyclic && contact.pressureInjury
@@ -583,8 +637,14 @@ function ContactMechResult({ contact }: { contact: MechContactResult }) {
   return (
     <article className="result-story">
       <MechVerdictCard contact={contact} />
-
-      <section className="result-story__charts">
+      <MechanicalStory contact={contact} />
+      <MechanicalLayerSlab contact={contact} />
+      <section className="primary-result-chart" aria-label="Primary mechanical response">
+        <div className="result-tier-label">Indentation over time</div>
+        <IndentationChart contact={contact} />
+      </section>
+      <DeepDive hint="load history · layer strain · pressure-time screen · fatigue">
+        <section className="result-story__charts">
         <div className="results-chart-tabs">
           {tabs.map((tab) => (
             <button
@@ -597,14 +657,13 @@ function ContactMechResult({ contact }: { contact: MechContactResult }) {
             </button>
           ))}
         </div>
-        {chart === "indentation" && <IndentationChart contact={contact} />}
         {chart === "load" && <LoadChart contact={contact} />}
         {chart === "strain" && <LayerStrainChart contact={contact} />}
         {chart === "pressure-risk" && <PressureDurationChart contact={contact} />}
         {chart === "fatigue" && contact.fatigue && <FatigueChart contact={contact} />}
-      </section>
-
-      <MechPhysicsDetail contact={contact} />
+        </section>
+        <MechPhysicsDetail contact={contact} />
+      </DeepDive>
     </article>
   );
 }

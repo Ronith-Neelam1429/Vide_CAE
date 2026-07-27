@@ -1,6 +1,5 @@
 export type BuiltinStimulusType =
   | "heat"
-  | "cold"
   | "electrical"
   | "pressure";
 
@@ -628,9 +627,6 @@ const ELECTRICAL_FIELDS: StimulusField[] = [
   },
 ];
 
-const PLACEHOLDER_NOTE =
-  "Not implemented. The heat path must be validated against published data before other stimulus models are added.";
-
 export const BUILTIN_STIMULI: StimulusDefinition[] = [
   {
     type: "heat",
@@ -638,13 +634,6 @@ export const BUILTIN_STIMULI: StimulusDefinition[] = [
     description: "Thermal contact heating through a finite contact conductance",
     implemented: true,
     fields: HEAT_FIELDS,
-  },
-  {
-    type: "cold",
-    label: "Cold",
-    description: PLACEHOLDER_NOTE,
-    implemented: false,
-    fields: [],
   },
   {
     type: "electrical",

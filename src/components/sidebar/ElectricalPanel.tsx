@@ -5,6 +5,7 @@ import {
   ComposedChart,
   Line,
   LineChart,
+  ReferenceArea,
   ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
@@ -13,7 +14,18 @@ import {
   YAxis,
 } from "recharts";
 import type { HeatContactResult } from "../../lib/simulation";
-import { injuryRiskFromOmega } from "../../lib/verdict";
+import {
+  electricalSafetyBudget,
+  electricalSynthesis,
+} from "../../lib/resultMetrics";
+import { LayeredCrossSection } from "../results/LayeredCrossSection";
+import { PhaseStrip } from "../results/PhaseStrip";
+import {
+  DeepDive,
+  SafetyBudgetBar,
+  StoryMetric,
+  StoryMetrics,
+} from "../results/ResultsTier";
 
 const AXIS = {
   tick: { fill: "#909090", fontSize: 10 },
@@ -29,10 +41,6 @@ function formatOmega(value: number) {
 
 function ElectricalVerdict({ contact }: { contact: HeatContactResult }) {
   const electrical = contact.electrical!;
-  const injury = injuryRiskFromOmega(
-    contact.summary.omegaBasal,
-    contact.summary.omegaDermalBase,
-  );
   const activation = electrical.nerveActivation;
   const activationTone =
     activation.classification === "Painful"
@@ -44,20 +52,14 @@ function ElectricalVerdict({ contact }: { contact: HeatContactResult }) {
           : "none";
 
   return (
-    <section className={`verdict-card is-${injury.tone}`} aria-live="polite">
+    <section className={`verdict-card results-verdict is-${activationTone}`} aria-live="polite">
+      <div className="result-tier-label">Verdict</div>
       <div className="verdict-card__top">
         <div className="verdict-card__identity">
           <strong>{contact.label}</strong>
           <span>{contact.skinProfile.label} · electrical-thermal screening</span>
         </div>
         <div className="verdict-card__badges">
-          <div className={`verdict-card__badge is-${injury.tone}`}>
-            <span className="verdict-card__badge-label">Thermal / burn risk</span>
-            <span className="verdict-card__badge-value">{injury.level}</span>
-            <span className="verdict-card__badge-threshold">
-              Ω {formatOmega(contact.summary.omegaBasal)} / 1.0
-            </span>
-          </div>
           <div className={`verdict-card__badge is-${activationTone}`}>
             <span className="verdict-card__badge-label">Nerve activation</span>
             <span className="verdict-card__badge-value">{activation.classification}</span>
@@ -68,57 +70,64 @@ function ElectricalVerdict({ contact }: { contact: HeatContactResult }) {
         </div>
       </div>
 
-      <p className="verdict-card__sentence">
-        {electrical.peakCurrentMa.toFixed(2)} mA peak through{" "}
-        {electrical.totalImpedanceOhm.toFixed(0)} Ω produced{" "}
-        {electrical.currentDensityAPerM2.toFixed(1)} A/m² at the electrode. Peak
-        basal temperature reached {contact.summary.peakBasalTemperatureC.toFixed(1)}°C;
-        the applied pulse is {activation.activationMargin.toFixed(2)}× the
-        Weiss-Lapicque sensory threshold.
-      </p>
-
-      <div className="verdict-card__hero">
-        <div className="verdict-card__hero-main">
-          <span className="verdict-card__hero-label">Peak basal temperature</span>
-          <strong className="verdict-card__hero-value">
-            {contact.summary.peakBasalTemperatureC.toFixed(1)}
-            <span> °C</span>
-          </strong>
-        </div>
-        <div className="verdict-card__hero-side">
-          <div>
-            <span>Peak current</span>
-            <strong>{electrical.peakCurrentMa.toFixed(2)} mA</strong>
-          </div>
-          <div>
-            <span>Power</span>
-            <strong>{electrical.totalPowerW.toPrecision(3)} W</strong>
-          </div>
-          <div>
-            <span>Charge / pulse</span>
-            <strong>{electrical.chargePerPulseUc.toFixed(3)} µC</strong>
-          </div>
-          <div>
-            <span>Charge density</span>
-            <strong className="is-secondary">
-              {electrical.chargeDensityUcPerCm2.toFixed(3)} µC/cm²
-            </strong>
-          </div>
-        </div>
-      </div>
+      <p className="verdict-card__sentence">{electricalSynthesis(activation)}</p>
+      <SafetyBudgetBar budget={electricalSafetyBudget(activation)} />
     </section>
+  );
+}
+
+function ElectricalStory({ contact }: { contact: HeatContactResult }) {
+  const electrical = contact.electrical!;
+  const activation = electrical.nerveActivation;
+  return (
+    <StoryMetrics>
+      <StoryMetric
+        primary
+        label="Activation margin"
+        value={activation.activationMargin.toFixed(2)}
+        unit="×"
+        note="applied ÷ modeled threshold"
+      />
+      <StoryMetric label="Peak current" value={electrical.peakCurrentMa.toFixed(2)} unit="mA" />
+      <StoryMetric label="RMS current" value={electrical.rmsCurrentMa.toFixed(2)} unit="mA" />
+      <StoryMetric
+        label="Charge density"
+        value={electrical.chargeDensityUcPerCm2.toFixed(3)}
+        unit="µC/cm²"
+        note="30 µC/cm²/phase is a material-dependent reference, not a hard limit"
+      />
+      <StoryMetric
+        label="Rheobase / chronaxie"
+        value={`${activation.rheobaseMa.toFixed(3)} mA / ${activation.chronaxieUs.toFixed(0)} µs`}
+        note={`${activation.thresholdCurrentMa.toFixed(3)} mA threshold at applied pulse`}
+      />
+      <StoryMetric label="Total power" value={electrical.totalPowerW.toPrecision(3)} unit="W" />
+    </StoryMetrics>
   );
 }
 
 function ElectricalTemperatureChart({ contact }: { contact: HeatContactResult }) {
   return (
-    <div className="results-chart">
+    <div className="results-chart" aria-label={`${contact.label} electrical thermal response`}>
       <ResponsiveContainer width="100%" height={260}>
         <LineChart data={contact.series} margin={{ top: 12, right: 10, bottom: 2, left: -18 }}>
           <CartesianGrid stroke="#3d3d3d" strokeDasharray="3 3" />
+          {contact.inputs.exposureS > 0 && (
+            <ReferenceArea
+              x1={0}
+              x2={contact.inputs.exposureS}
+              fill="#20b8ed"
+              fillOpacity={0.06}
+            />
+          )}
           <XAxis dataKey="timeS" type="number" unit=" s" {...AXIS} />
           <YAxis domain={["auto", "auto"]} unit=" °C" width={56} {...AXIS} />
-          <ReferenceLine y={44} stroke="#ffb020" strokeDasharray="4 4" />
+          <ReferenceLine
+            y={44}
+            stroke="#ffb020"
+            strokeDasharray="4 4"
+            label={{ value: "44 °C", fill: "#e5b15b", fontSize: 10, position: "insideTopRight" }}
+          />
           <Tooltip
             contentStyle={{
               background: "rgba(29,29,29,0.96)",
@@ -156,9 +165,10 @@ function ElectricalTemperatureChart({ contact }: { contact: HeatContactResult })
           />
         </LineChart>
       </ResponsiveContainer>
+      <PhaseStrip samples={contact.series} insetLeftPx={38} insetRightPx={10} />
       <p className="results-chart__caption">
-        Pennes bioheat response to internal Joule source q = J²/σ; cooling continues
-        after stimulation.
+        Shaded region is electrical stimulation; the tail is post-stimulation cooling.
+        Pennes bioheat response uses internal Joule source q = J²/σ.
       </p>
     </div>
   );
@@ -232,18 +242,46 @@ function ActivationChart({ contact }: { contact: HeatContactResult }) {
       })),
     [activation],
   );
+  const thresholdAtPulse =
+    activation.rheobaseMa * (1 + activation.chronaxieUs / activation.pulseDurationUs);
+  const aboveThreshold = activation.appliedCurrentMa >= thresholdAtPulse;
   const yMax = Math.max(
     activation.appliedCurrentMa,
+    activation.rheobaseMa,
     ...data.map((point) => point.thresholdMa),
   );
 
   return (
-    <div className="results-chart">
+    <div className="results-chart" aria-label="Strength-duration activation curve">
+      <p className={`activation-status ${aboveThreshold ? "is-above" : "is-below"}`}>
+        Applied pulse is {aboveThreshold ? "above" : "below"} threshold
+        {" · "}
+        {activation.appliedCurrentMa.toFixed(3)} mA vs {thresholdAtPulse.toFixed(3)} mA at{" "}
+        {activation.pulseDurationUs.toFixed(0)} µs
+      </p>
       <ResponsiveContainer width="100%" height={260}>
         <LineChart data={data} margin={{ top: 12, right: 12, bottom: 2, left: -8 }}>
           <CartesianGrid stroke="#3d3d3d" strokeDasharray="3 3" />
-          <XAxis dataKey="durationUs" type="number" unit=" µs" scale="log" domain={["dataMin", "dataMax"]} {...AXIS} />
+          <XAxis
+            dataKey="durationUs"
+            type="number"
+            unit=" µs"
+            scale="log"
+            domain={["dataMin", "dataMax"]}
+            {...AXIS}
+          />
           <YAxis unit=" mA" width={54} domain={[0, yMax * 1.15]} {...AXIS} />
+          <ReferenceLine
+            y={activation.rheobaseMa}
+            stroke="#909090"
+            strokeDasharray="4 4"
+            label={{
+              value: "Rheobase",
+              fill: "#909090",
+              fontSize: 10,
+              position: "insideTopRight",
+            }}
+          />
           <Tooltip
             contentStyle={{
               background: "rgba(29,29,29,0.96)",
@@ -265,52 +303,98 @@ function ActivationChart({ contact }: { contact: HeatContactResult }) {
             x={activation.pulseDurationUs}
             y={activation.appliedCurrentMa}
             r={6}
-            fill="#38bdf8"
+            fill={aboveThreshold ? "#e5554b" : "#38bdf8"}
             stroke="#b8e7fb"
-            label={{ value: "Applied pulse", fill: "#b8e7fb", fontSize: 10, position: "top" }}
+            label={{
+              value: "Applied pulse",
+              fill: aboveThreshold ? "#f08c69" : "#b8e7fb",
+              fontSize: 10,
+              position: "top",
+            }}
           />
         </LineChart>
       </ResponsiveContainer>
+      <div className="results-chart__legend">
+        <span>
+          <i style={{ background: "#e3b341" }} />
+          Weiss–Lapicque threshold
+        </span>
+        <span>
+          <i style={{ background: aboveThreshold ? "#e5554b" : "#38bdf8" }} />
+          Applied pulse
+        </span>
+      </div>
       <p className="results-chart__caption">
-        Weiss-Lapicque threshold. Human Aδ starting values are extrapolated from an
-        intraepidermal-electrode study to this surface-electrode geometry.
+        threshold = rheobase × (1 + chronaxie / pulse duration). Human Aδ starting values are
+        extrapolated from an intraepidermal-electrode study to this surface-electrode geometry.
       </p>
     </div>
   );
 }
 
+function ElectricalLayerSlab({ contact }: { contact: HeatContactResult }) {
+  const layers = contact.electrical?.layers ?? [];
+  const bands = useMemo(
+    () =>
+      layers.map((layer) => ({
+        layerName: layer.name,
+        depthStartMm: layer.depthStartMm,
+        depthEndMm: layer.depthEndMm,
+        value: layer.currentDensityAPerM2,
+      })),
+    [layers],
+  );
+  if (bands.length === 0) return null;
+
+  const values = bands.map((band) => band.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+
+  return (
+    <LayeredCrossSection
+      title="Layers by current density"
+      bands={bands}
+      unit="A/m²"
+      colorScale={{
+        min,
+        max: max === min ? max * 1.01 || 1 : max,
+        stops: ["#2a2a2a", "#046a9a", "#0696d7", "#e3b341"],
+      }}
+      valueFormatter={(value) => value.toPrecision(3)}
+    />
+  );
+}
+
 function ElectricalPhysics({ contact }: { contact: HeatContactResult }) {
-  const [open, setOpen] = useState(false);
   const electrical = contact.electrical!;
   return (
-    <section className="physics-detail">
-      <button
-        type="button"
-        className="physics-detail__toggle"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-      >
-        <span className={`result-section__chevron${open ? " is-open" : ""}`}>›</span>
-        Physics detail
-        <span className="physics-detail__hint">impedance · power · conductivity</span>
-      </button>
-      {open && (
-        <div className="physics-detail__body">
+    <section className="physics-detail deep-dive__section">
+      <div className="physics-detail__header">
+        <strong>Electrical model</strong>
+        <span>impedance · charge · conductivity · thermal outcome</span>
+      </div>
+      <div className="physics-detail__body">
           <dl className="result-card__grid">
             <div><dt>Tissue resistance</dt><dd>{electrical.tissueResistanceOhm.toFixed(0)} Ω</dd></div>
             <div><dt>Interface impedance</dt><dd>{electrical.interfaceImpedanceOhm.toFixed(0)} Ω</dd></div>
+            <div><dt>Total impedance</dt><dd>{electrical.totalImpedanceOhm.toFixed(0)} Ω</dd></div>
             <div><dt>Applied voltage</dt><dd>{electrical.appliedVoltageV.toFixed(2)} V</dd></div>
             <div><dt>RMS current</dt><dd>{electrical.rmsCurrentMa.toFixed(3)} mA</dd></div>
+            <div><dt>Current density</dt><dd>{electrical.currentDensityAPerM2.toFixed(3)} A/m²</dd></div>
+            <div><dt>Charge per pulse</dt><dd>{electrical.chargePerPulseUc.toFixed(3)} µC</dd></div>
             <div><dt>Rheobase / chronaxie</dt><dd>{electrical.nerveActivation.rheobaseMa.toFixed(3)} mA / {electrical.nerveActivation.chronaxieUs.toFixed(0)} µs</dd></div>
+            <div><dt>Threshold current</dt><dd>{electrical.nerveActivation.thresholdCurrentMa.toFixed(3)} mA</dd></div>
+            <div><dt>Peak basal / Ω</dt><dd>{contact.summary.peakBasalTemperatureC.toFixed(2)} °C / {formatOmega(contact.summary.omegaBasal)}</dd></div>
             <div><dt>Return path</dt><dd>{electrical.returnPathAssumption}</dd></div>
           </dl>
           <table className="result-table">
-            <thead><tr><th>Layer</th><th>σ (S/m)</th><th>Confidence</th><th>q (W/m³)</th><th>ΔV</th></tr></thead>
+            <thead><tr><th>Layer</th><th>σ (S/m)</th><th>J (A/m²)</th><th>Confidence</th><th>q (W/m³)</th><th>ΔV</th></tr></thead>
             <tbody>
               {electrical.layers.map((layer) => (
                 <tr key={`${layer.name}-${layer.depthStartMm}`}>
                   <td>{layer.name}</td>
                   <td>{layer.conductivitySPerM.toExponential(2)}</td>
+                  <td>{layer.currentDensityAPerM2.toExponential(2)}</td>
                   <td>{layer.conductivityConfidence}</td>
                   <td>{layer.powerDensityWPerM3.toExponential(2)}</td>
                   <td>{layer.voltageDropV.toFixed(3)} V</td>
@@ -324,28 +408,33 @@ function ElectricalPhysics({ contact }: { contact: HeatContactResult }) {
               {contact.warnings.map((warning) => <li key={warning}>{warning}</li>)}
             </ul>
           )}
-        </div>
-      )}
+      </div>
     </section>
   );
 }
 
 function ElectricalContact({ contact }: { contact: HeatContactResult }) {
-  const [chart, setChart] = useState<"temperature" | "current" | "activation">("temperature");
+  const [chart, setChart] = useState<"current" | "activation">("activation");
   return (
     <article className="result-story">
       <ElectricalVerdict contact={contact} />
-      <section className="result-story__charts">
-        <div className="results-chart-tabs">
-          <button type="button" className={`results-chart-tab${chart === "temperature" ? " is-active" : ""}`} onClick={() => setChart("temperature")}>Temperature over time</button>
-          <button type="button" className={`results-chart-tab${chart === "current" ? " is-active" : ""}`} onClick={() => setChart("current")}>Current density vs depth</button>
-          <button type="button" className={`results-chart-tab${chart === "activation" ? " is-active" : ""}`} onClick={() => setChart("activation")}>Activation margin</button>
-        </div>
-        {chart === "temperature" && <ElectricalTemperatureChart contact={contact} />}
-        {chart === "current" && <CurrentDepthChart contact={contact} />}
-        {chart === "activation" && <ActivationChart contact={contact} />}
+      <ElectricalStory contact={contact} />
+      <ElectricalLayerSlab contact={contact} />
+      <section className="primary-result-chart" aria-label="Primary electrical thermal response">
+        <div className="result-tier-label">Temperature over time</div>
+        <ElectricalTemperatureChart contact={contact} />
       </section>
-      <ElectricalPhysics contact={contact} />
+      <DeepDive hint="strength-duration · current density · impedance · layers">
+        <section className="result-story__charts">
+        <div className="results-chart-tabs">
+          <button type="button" className={`results-chart-tab${chart === "activation" ? " is-active" : ""}`} onClick={() => setChart("activation")}>Strength–duration</button>
+          <button type="button" className={`results-chart-tab${chart === "current" ? " is-active" : ""}`} onClick={() => setChart("current")}>Current density vs depth</button>
+        </div>
+        {chart === "activation" && <ActivationChart contact={contact} />}
+        {chart === "current" && <CurrentDepthChart contact={contact} />}
+        </section>
+        <ElectricalPhysics contact={contact} />
+      </DeepDive>
     </article>
   );
 }
