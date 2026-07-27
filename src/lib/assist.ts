@@ -87,6 +87,17 @@ export type ProofLabAnalysisPayload = {
     measurementNote: string;
     extractedFromPaper: string[];
     unknowns: string[];
+    protocolInputs: Record<string, number>;
+    paperReferenceInputs: Record<string, number>;
+    protocolMatch: {
+      matched: boolean;
+      mismatches: Array<{
+        key: string;
+        label: string;
+        paper: number;
+        yours: number;
+      }>;
+    };
     experimentMetrics: unknown[];
     windows: Array<{
       label: string;

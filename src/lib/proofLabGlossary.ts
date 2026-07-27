@@ -25,7 +25,10 @@ export const PROOF_LAB_METRIC_HELP: Record<string, string> = {
   mean_rise_rate:
     "Average warming speed across the window, in degrees per minute.",
   peak_temperature:
-    "Highest temperature recorded in the window — paper peak vs your simulated peak.",
+    "Highest temperature recorded in the window — study peak vs your simulated peak.",
+  peak_temperature_error:
+    "Difference between your simulated peak temperature and the study's peak.",
+  sample_count: "How many published time points were aligned and compared in this window.",
   rmse:
     "Root mean square error: typical gap at every aligned time point. Lower = closer overall fit.",
   mae:

@@ -13,7 +13,9 @@ use simulation::model::{
     INTERFACE_MATERIALS, SKIN_PROFILES,
 };
 use simulation::verification::VerificationSuite;
-use simulation::proof_lab::{run_proof_lab, ProofLabReport, ProofLabRequest};
+use simulation::proof_lab::{
+    proof_lab_library, run_proof_lab, ProofLabLibraryEntry, ProofLabReport, ProofLabRequest,
+};
 use simulation::{
     run_heat_simulation, run_validation_suite, SimulationRequest, SimulationResponse,
     ValidationRequest, ValidationSuiteReport,
@@ -49,10 +51,16 @@ fn run_validation(request: ValidationRequest) -> Result<ValidationSuiteReport, S
     run_validation_suite(request)
 }
 
-/// Blind proof-lab: protocol-only simulation, post-hoc measured comparison.
+/// Blind proof-lab: sidebar contact vs selected published studies.
 #[tauri::command]
 fn run_proof_lab_validation(request: ProofLabRequest) -> Result<ProofLabReport, String> {
     run_proof_lab(request)
+}
+
+/// Catalog of published studies available in Proof Lab.
+#[tauri::command]
+fn list_proof_lab_library_cmd() -> Result<Vec<ProofLabLibraryEntry>, String> {
+    proof_lab_library()
 }
 
 #[tauri::command]
@@ -120,6 +128,7 @@ pub fn run() {
             verify_solver,
             run_validation,
             run_proof_lab_validation,
+            list_proof_lab_library_cmd,
             assist_status,
             assist_suggest_protocol,
             assist_extract_protocol,

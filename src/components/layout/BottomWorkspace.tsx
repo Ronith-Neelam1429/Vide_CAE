@@ -146,8 +146,8 @@ export function BottomWorkspace() {
   const selectedLabel = useExperimentStore((s) =>
     s.contactPoints.find((c) => c.id === s.selectedContactId)?.label,
   );
-  const runProofLab = useExperimentStore((s) => s.runProofLab);
-  const proofLabStatus = useExperimentStore((s) => s.proofLabStatus);
+  const loadProofLabLibrary = useExperimentStore((s) => s.loadProofLabLibrary);
+  const proofLabLibraryStatus = useExperimentStore((s) => s.proofLabLibraryStatus);
   const runValidationSuite = useExperimentStore((s) => s.runValidationSuite);
   const validationStatus = useExperimentStore((s) => s.validationStatus);
   const dragRef = useRef<{ startY: number; startH: number } | null>(null);
@@ -194,8 +194,8 @@ export function BottomWorkspace() {
 
   const selectTab = (next: BottomPanelTab) => {
     setTab(next);
-    if (next === "proof-lab" && proofLabStatus === "idle") {
-      void runProofLab();
+    if (next === "proof-lab" && proofLabLibraryStatus === "idle") {
+      void loadProofLabLibrary();
     }
     if (next === "compare" && validationStatus === "idle") {
       void runValidationSuite({ includeSyntheticFixtures: false });

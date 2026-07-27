@@ -43,19 +43,109 @@ pub struct ProofLabAnalysis {
 }
 
 const ANALYZE_SYSTEM_PROMPT: &str = "You are a scientific validation analyst for Vide CAE Proof Lab. \
-You compare published experiment quantities to Vide simulation outputs. \
-Be precise, quantitative, and honest about disagreement. Never invent numbers not present in the payload. \
-Never claim clinical pass/fail. Prefer experiment-relevant checkpoints (baseline, end temperature, ΔT, \
-pressure at specific durations, rheobase/chronaxie, pulse thresholds) over vague average-error language, \
-while still mentioning RMSE/MAE when useful. \
+You interpret paper↔Vide comparisons for engineers — do NOT restate numbers already visible in metric cards or protocol tables. \
+Each case payload includes protocolMatch.matched (bool) and mismatches[]. \
+When protocolMatch.matched is false: agreement MUST be protocol-mismatch. \
+Explain in plain language that the sidebar differs from the study protocol and a fair accuracy test requires matching first. \
+Do NOT call the model divergent or broken when protocols mismatch — the gap reflects different experiments. \
+When protocolMatch.matched is true: agreement may be close|mixed|divergent based on model fit quality only. \
+Offer one sentence of judgment (why the gap might exist, what to inspect next) — not a numeric recap. \
+Never invent numbers. Never claim clinical pass/fail. \
 Return JSON only with keys: headline (string), summary (string), caseBriefs (array of objects with \
-caseId, headline, agreement one of close|mixed|divergent, highlights string[], concerns string[]), \
+caseId, headline, agreement one of protocol-mismatch|close|mixed|divergent|transfer-check, highlights string[], concerns string[]), \
 recommendedReads (string[]), caveats (string[]).";
+
+fn protocol_matched(case: &Value) -> bool {
+    case.get("protocolMatch")
+        .and_then(|entry| entry.get("matched"))
+        .and_then(|entry| entry.as_bool())
+        .unwrap_or(false)
+}
+
+fn mismatch_interpretation(case: &Value) -> String {
+    let mismatches = case
+        .get("protocolMatch")
+        .and_then(|entry| entry.get("mismatches"))
+        .and_then(|entry| entry.as_array());
+
+    let Some(mismatches) = mismatches else {
+        return "Sidebar settings differ from the published protocol — match the study before judging model accuracy.".into();
+    };
+
+    if mismatches.is_empty() {
+        return "Sidebar settings differ from the published protocol — match the study before judging model accuracy.".into();
+    }
+
+    let mut parts = Vec::new();
+    for item in mismatches {
+        let label = item
+            .get("label")
+            .and_then(|entry| entry.as_str())
+            .unwrap_or("setting");
+        let key = item.get("key").and_then(|entry| entry.as_str()).unwrap_or("");
+        let paper = item.get("paper").and_then(|entry| entry.as_f64());
+        let yours = item.get("yours").and_then(|entry| entry.as_f64());
+        if key == "durationS" {
+            if let (Some(p), Some(y)) = (paper, yours) {
+                let ratio = if y > 0.0 { p / y } else { f64::NAN };
+                if ratio.is_finite() && ratio > 1.5 {
+                    parts.push(format!(
+                        "The study ran {:.0}× longer than your current hold — duration dominates any temperature curve difference.",
+                        ratio
+                    ));
+                    continue;
+                }
+            }
+        }
+        if let (Some(p), Some(y)) = (paper, yours) {
+            parts.push(format!(
+                "{label} differs (yours {y:.1} vs study {p:.1}) — align this before treating residuals as model error."
+            ));
+        }
+    }
+
+    if parts.is_empty() {
+        "Sidebar settings differ from the published protocol — match the study before judging model accuracy.".into()
+    } else {
+        parts.join(" ")
+    }
+}
+
+fn matched_accuracy_interpretation(case: &Value) -> String {
+    let rmse = case
+        .get("windows")
+        .and_then(|entry| entry.as_array())
+        .and_then(|windows| windows.first())
+        .and_then(|window| window.get("rmseC"))
+        .and_then(|entry| entry.as_f64());
+
+    let unknowns = case
+        .get("unknowns")
+        .and_then(|entry| entry.as_array())
+        .and_then(|items| items.first())
+        .and_then(|entry| entry.as_str())
+        .unwrap_or("sparse published checkpoints");
+
+    match rmse {
+        Some(r) if r <= 1.0 => format!(
+            "With protocols aligned, the model tracks published checkpoints closely — inspect {unknowns} if you need finer shape validation."
+        ),
+        Some(r) if r <= 3.0 => format!(
+            "Protocols match but a {:.1} °C typical gap remains — the largest drift may be at early transient or post-removal windows given {unknowns}.",
+            r
+        ),
+        Some(r) => format!(
+            "Protocols match yet residuals reach {:.1} °C typical gap — worth checking measurement target alignment ({unknowns}) before recalibrating physics.",
+            r
+        ),
+        None => "Protocols align — review checkpoint tables for where the curve diverges.".into(),
+    }
+}
 
 fn rules_analysis(payload: &Value) -> ProofLabAnalysis {
     let mut briefs = Vec::new();
-    let mut divergent = 0usize;
-    let mut close = 0usize;
+    let mut mismatch_count = 0usize;
+    let mut matched_count = 0usize;
 
     if let Some(cases) = payload.get("cases").and_then(|entry| entry.as_array()) {
         for case in cases {
@@ -70,82 +160,58 @@ fn rules_analysis(payload: &Value) -> ProofLabAnalysis {
                 .map(str::to_string)
                 .unwrap_or_else(|| case_id.clone());
 
-            let metrics = case
-                .get("experimentMetrics")
-                .and_then(|entry| entry.as_array())
-                .cloned()
-                .unwrap_or_default();
-
+            let matched = protocol_matched(case);
             let mut highlights = Vec::new();
             let mut concerns = Vec::new();
-            let mut worst_abs = 0.0_f64;
 
-            for metric in &metrics {
-                let label = metric
-                    .get("label")
-                    .and_then(|entry| entry.as_str())
-                    .unwrap_or("metric");
-                let unit = metric
-                    .get("unit")
-                    .and_then(|entry| entry.as_str())
-                    .unwrap_or("");
-                let paper = metric.get("paperValue").and_then(|entry| entry.as_f64());
-                let vide = metric.get("videValue").and_then(|entry| entry.as_f64());
-                let abs_err = metric
-                    .get("absoluteError")
+            if matched {
+                matched_count += 1;
+                let interpretation = matched_accuracy_interpretation(case);
+                highlights.push(interpretation);
+
+                let rmse = case
+                    .get("windows")
+                    .and_then(|entry| entry.as_array())
+                    .and_then(|windows| windows.first())
+                    .and_then(|window| window.get("rmseC"))
                     .and_then(|entry| entry.as_f64())
-                    .or_else(|| match (paper, vide) {
-                        (Some(p), Some(v)) => Some(v - p),
-                        _ => None,
-                    });
-                let category = metric
-                    .get("category")
-                    .and_then(|entry| entry.as_str())
-                    .unwrap_or("");
+                    .unwrap_or(f64::NAN);
 
-                if category == "summary" {
-                    if let Some(value) = vide {
-                        if label.to_ascii_lowercase().contains("rmse") {
-                            highlights.push(format!("RMSE {value:.3} {unit}"));
-                        }
-                    }
-                    continue;
+                let agreement = if rmse.is_finite() && rmse <= 1.0 {
+                    "close"
+                } else if rmse.is_finite() && rmse <= 3.0 {
+                    "mixed"
+                } else {
+                    "divergent"
+                };
+
+                if agreement == "divergent" {
+                    concerns.push(
+                        "Residuals remain large even with matched protocol — focus on measurement target and sparse checkpoints, not sidebar settings.".into(),
+                    );
                 }
 
-                if let (Some(p), Some(v), Some(err)) = (paper, vide, abs_err) {
-                    worst_abs = worst_abs.max(err.abs());
-                    let line = format!("{label}: paper {p:.3} {unit} vs Vide {v:.3} {unit} (Δ {err:+.3})");
-                    if err.abs() <= f64::max(0.5, 0.05 * p.abs()) {
-                        highlights.push(line);
-                    } else {
-                        concerns.push(line);
-                    }
-                }
-            }
-
-            let agreement = if concerns.is_empty() && !highlights.is_empty() {
-                close += 1;
-                "close"
-            } else if concerns.len() > highlights.len() {
-                divergent += 1;
-                "divergent"
+                briefs.push(ProofLabCaseBrief {
+                    case_id,
+                    headline: format!("{title}: model accuracy review (protocol matched)"),
+                    agreement: agreement.into(),
+                    highlights,
+                    concerns,
+                });
             } else {
-                "mixed"
-            };
-
-            if highlights.is_empty() {
-                highlights.push("Compared locked protocol outputs to published checkpoints.".into());
+                mismatch_count += 1;
+                highlights.push(mismatch_interpretation(case));
+                concerns.push(
+                    "RMSE/MAE on this run reflect protocol differences, not model failure — use Match protocol, then re-run.".into(),
+                );
+                briefs.push(ProofLabCaseBrief {
+                    case_id,
+                    headline: format!("{title}: protocols differ — not a fair accuracy test yet"),
+                    agreement: "protocol-mismatch".into(),
+                    highlights,
+                    concerns,
+                });
             }
-
-            briefs.push(ProofLabCaseBrief {
-                case_id,
-                headline: format!("{title}: {agreement} paper↔Vide agreement"),
-                agreement: agreement.into(),
-                highlights,
-                concerns,
-            });
-
-            let _ = worst_abs;
         }
     }
 
@@ -164,83 +230,48 @@ fn rules_analysis(payload: &Value) -> ProofLabAnalysis {
                 .and_then(|entry| entry.as_str())
                 .map(str::to_string)
                 .unwrap_or_else(|| case_id.clone());
-            let rmse = case.get("rmse").and_then(|entry| entry.as_f64()).unwrap_or(f64::NAN);
-            let unit = case
-                .get("experimentMetrics")
-                .and_then(|entry| entry.as_array())
-                .and_then(|metrics| metrics.first())
-                .and_then(|metric| metric.get("unit"))
-                .and_then(|entry| entry.as_str())
-                .unwrap_or("");
 
-            let mut highlights = Vec::new();
-            let mut concerns = Vec::new();
-            if let Some(metrics) = case
-                .get("experimentMetrics")
-                .and_then(|entry| entry.as_array())
-            {
-                for metric in metrics.iter().take(8) {
-                    let label = metric
-                        .get("label")
-                        .and_then(|entry| entry.as_str())
-                        .unwrap_or("metric");
-                    let m_unit = metric
-                        .get("unit")
-                        .and_then(|entry| entry.as_str())
-                        .unwrap_or(unit);
-                    let paper = metric.get("paperValue").and_then(|entry| entry.as_f64());
-                    let vide = metric.get("videValue").and_then(|entry| entry.as_f64());
-                    let category = metric
-                        .get("category")
-                        .and_then(|entry| entry.as_str())
-                        .unwrap_or("");
-                    if category == "summary" {
-                        continue;
-                    }
-                    if let (Some(p), Some(v)) = (paper, vide) {
-                        let err = v - p;
-                        let line = format!("{label}: paper {p:.3} {m_unit} vs Vide {v:.3} {m_unit} (Δ {err:+.3})");
-                        if err.abs() / p.abs().max(1.0e-9) > 0.25 {
-                            concerns.push(line);
-                        } else {
-                            highlights.push(line);
-                        }
-                    }
-                }
-            }
-            if rmse.is_finite() {
-                concerns.push(format!("Aggregate RMSE {rmse:.3} {unit} (transfer check)"));
-            }
-            divergent += 1;
             briefs.push(ProofLabCaseBrief {
                 case_id,
-                headline: format!("{title}: transfer check exposes model family differences"),
-                agreement: "divergent".into(),
-                highlights,
-                concerns,
+                headline: format!("{title}: independent transfer check"),
+                agreement: "transfer-check".into(),
+                highlights: vec![
+                    "This compares Vide's production equations to a different published model family — large RMSE is expected and informative, not a sidebar calibration failure.".into(),
+                ],
+                concerns: case
+                    .get("caveats")
+                    .and_then(|entry| serde_json::from_value(entry.clone()).ok())
+                    .unwrap_or_default(),
             });
         }
     }
 
-    let headline = if divergent > close {
-        "Proof Lab shows mixed-to-divergent paper↔Vide agreement on experiment checkpoints"
-            .into()
+    let headline = if mismatch_count > 0 && matched_count == 0 {
+        "Proof Lab: align study protocols before judging model accuracy".into()
+    } else if mismatch_count > 0 {
+        "Proof Lab: some comparisons are protocol mismatches — match settings for fair accuracy tests".into()
     } else {
-        "Proof Lab checkpoint comparison complete — review paper vs Vide side-by-side".into()
+        "Proof Lab: protocol-matched comparisons ready for accuracy review".into()
+    };
+
+    let summary = if mismatch_count > 0 {
+        "Focus on protocol alignment first — error metrics beside mismatched studies describe different experiments, not model quality. Match a study's protocol, re-run, then read accuracy briefs.".into()
+    } else {
+        "Protocols match the selected studies. Briefs below interpret model fit — they deliberately avoid repeating numbers already shown in the cards.".into()
     };
 
     ProofLabAnalysis {
         source: AssistSource::Rules,
         headline,
-        summary: "Deterministic analysis of experiment-relevant checkpoints (baseline/end temperatures, ΔT, duration thresholds, strength-duration parameters) plus RMSE/MAE. Azure was unavailable or disabled, so this is a rules fallback — not a clinical verdict.".into(),
+        summary,
         case_briefs: briefs,
         recommended_reads: vec![
-            "Read every key data point table — not only RMSE.".into(),
-            "Treat mechanical/electrical transfer checks as cross-model tests, not calibration targets.".into(),
+            "Use Match protocol for any study showing Protocol mismatch.".into(),
+            "Open Metric detail only when you need checkpoint-level numbers.".into(),
         ],
         caveats: vec![
-            "Blind heat cases never exposed measured series to the solver.".into(),
-            "Sparse paper checkpoints (e.g. Mayrovitz/Petrofsky) constrain what can be claimed about T(t) shape.".into(),
+            "Heat cases simulate from your sidebar; published curves are compared afterward.".into(),
+            "Sparse paper checkpoints constrain claims about full T(t) shape.".into(),
         ],
     }
 }
@@ -281,7 +312,8 @@ fn analysis_from_azure_json(value: Value) -> Result<ProofLabAnalysis, String> {
 async fn analyze_with_azure(payload: &Value) -> Result<ProofLabAnalysis, String> {
     let config = load_azure_config().ok_or_else(|| "Azure assist is not configured".to_string())?;
     let user_prompt = format!(
-        "Analyze this Proof Lab paper↔Vide comparison payload. Focus on experiment-specific quantities and direct mismatches.\n\n{}",
+        "Analyze this Proof Lab payload. Do not restate RMSE/MAE/temperature/duration numbers from cards. \
+Focus on protocolMatch status and interpretive judgment.\n\n{}",
         serde_json::to_string_pretty(payload).unwrap_or_else(|_| "{}".into())
     );
     let value = chat_json(&config, ANALYZE_SYSTEM_PROMPT, &user_prompt).await?;
@@ -331,7 +363,8 @@ mod tests {
     fn mayrovitz_request() -> ProofLabRequest {
         let manifest: ProofLabCaseManifest = serde_json::from_str(MAYROVITZ_PROTOCOL).unwrap();
         ProofLabRequest {
-            contact: contact_from_protocol(&manifest),
+            contact: Some(contact_from_protocol(&manifest)),
+            case_ids: vec![manifest.id.clone()],
             settings: SolverSettings {
                 surface_cell_um: 5.0,
                 max_cell_um: 400.0,
@@ -346,7 +379,17 @@ mod tests {
     #[test]
     fn rules_analysis_emits_briefs() {
         let report = run_proof_lab(mayrovitz_request()).expect("report");
-        let payload = proof_lab_analysis_payload(&report);
+        let mut payload = proof_lab_analysis_payload(&report);
+        if let Some(cases) = payload.get_mut("cases").and_then(|c| c.as_array_mut()) {
+            for case in cases {
+                case.as_object_mut().map(|obj| {
+                    obj.insert(
+                        "protocolMatch".into(),
+                        serde_json::json!({"matched": true, "mismatches": []}),
+                    );
+                });
+            }
+        }
         let analysis = rules_analysis(&payload);
         assert!(!analysis.case_briefs.is_empty());
         assert!(!analysis.headline.is_empty());

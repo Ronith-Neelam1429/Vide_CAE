@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -15,8 +15,24 @@ import type {
   DataPointCompare,
   ExperimentMetric,
   ProofLabCaseResult,
+  ProofLabLibraryEntry,
+  ProofLabReport,
   WindowComparison,
 } from "../../lib/simulation";
+import {
+  accuracyTone,
+  accuracyVerdictSentence,
+  computeProtocolMatch,
+  formatDurationS,
+  formatProofLabNumber,
+  formatProofLabPercent,
+  formatProofLabSigned,
+  formatProofLabTemp,
+  isSingleValueMetric,
+  protocolMismatchSentence,
+  windowMetricsForDisplay,
+  type ProtocolMatchResult,
+} from "../../lib/proofLabProtocol";
 import { useExperimentStore } from "../../store/experimentStore";
 import {
   formatParamKey,
@@ -26,19 +42,19 @@ import {
   PROOF_LAB_METRIC_HELP,
 } from "../../lib/proofLabGlossary";
 
-function formatMetric(value: number | null | undefined, digits = 3, unit = ""): string {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return "—";
-  }
-  return `${value.toFixed(digits)}${unit}`;
+function formatMetric(value: number | null | undefined, unit = ""): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  if (unit.includes("°C")) return formatProofLabNumber(value, 1, unit);
+  if (unit.includes("%")) return formatProofLabPercent(value);
+  return formatProofLabNumber(value, 1, unit);
 }
 
-function formatSigned(value: number | null | undefined, digits = 3, unit = ""): string {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return "—";
+function formatSigned(value: number | null | undefined, unit = ""): string {
+  if (unit.includes("°C") || unit === " °C") {
+    return formatProofLabSigned(value, 1, unit || " °C");
   }
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toFixed(digits)}${unit}`;
+  if (unit.includes("%")) return formatProofLabPercent(value);
+  return formatProofLabSigned(value, 1, unit);
 }
 
 function modalityLabel(modality: string): string {
@@ -47,70 +63,87 @@ function modalityLabel(modality: string): string {
   return "Heat";
 }
 
-function MetricCards({ metrics }: { metrics: ExperimentMetric[] }) {
-  const primary = metrics.filter((metric) => metric.category !== "summary");
-  const summary = metrics.filter((metric) => metric.category === "summary");
+function InfoTip({ text }: { text: string }) {
+  if (!text) return null;
+  return (
+    <span className="proof-lab__info" title={text} aria-label={text}>
+      i
+    </span>
+  );
+}
+
+function MetricCards({
+  metrics,
+  protocolMatched,
+}: {
+  metrics: ExperimentMetric[];
+  protocolMatched: boolean;
+}) {
+  if (metrics.length === 0) {
+    return <p className="proof-lab__empty-inline">No metrics for this window.</p>;
+  }
   return (
     <div className="proof-lab__metric-stack">
+      {!protocolMatched && (
+        <p className="proof-lab__mismatch-note">
+          These numbers reflect a protocol difference, not model error — match the protocol to
+          test accuracy.
+        </p>
+      )}
       <div className="proof-lab__metric-grid">
-        {primary.map((metric) => {
+        {metrics.map((metric) => {
           const help = metricDescription(metric);
+          const single = isSingleValueMetric(metric);
           return (
             <article
               key={metric.id}
-              className={`proof-lab__metric-card is-${metric.category}`}
-              title={help}
+              className={`proof-lab__metric-card is-${metric.category}${single ? " is-single" : ""}`}
             >
               <header>
-                <div>
+                <div className="proof-lab__metric-label">
                   <span>{metric.label}</span>
-                  {help && <p className="proof-lab__metric-desc">{help}</p>}
+                  <InfoTip text={help} />
                 </div>
                 <small>{metric.unit}</small>
               </header>
-              <div className="proof-lab__metric-compare">
-                <div>
-                  <em>Published study</em>
-                  <strong>{formatMetric(metric.paperValue, 3)}</strong>
+              {single ? (
+                <div className="proof-lab__metric-single">
+                  <strong>{formatMetric(metric.videValue, ` ${metric.unit}`)}</strong>
+                  {metric.note && <p className="proof-lab__metric-note">{metric.note}</p>}
                 </div>
-                <div className="proof-lab__metric-vs" aria-hidden>
-                  vs
-                </div>
-                <div>
-                  <em>Your simulation</em>
-                  <strong>{formatMetric(metric.videValue, 3)}</strong>
-                </div>
-              </div>
-              <footer>
-                <span title={PROOF_LAB_COLUMN_HELP.delta}>
-                  Gap {formatSigned(metric.absoluteError, 3, ` ${metric.unit}`)}
-                </span>
-                {metric.relativeErrorPct !== null && metric.relativeErrorPct !== undefined && (
-                  <span title={PROOF_LAB_COLUMN_HELP.relative}>
-                    {formatSigned(metric.relativeErrorPct, 1, "%")}
-                  </span>
-                )}
-              </footer>
-              {metric.note && <p className="proof-lab__metric-note">{metric.note}</p>}
+              ) : (
+                <>
+                  <div className="proof-lab__metric-compare">
+                    <div>
+                      <em>Published study</em>
+                      <strong>{formatMetric(metric.paperValue, ` ${metric.unit}`)}</strong>
+                    </div>
+                    <div className="proof-lab__metric-vs" aria-hidden>
+                      vs
+                    </div>
+                    <div>
+                      <em>Your simulation</em>
+                      <strong>{formatMetric(metric.videValue, ` ${metric.unit}`)}</strong>
+                    </div>
+                  </div>
+                  <footer>
+                    <span title={PROOF_LAB_COLUMN_HELP.delta}>
+                      Gap {formatSigned(metric.absoluteError, ` ${metric.unit}`)}
+                    </span>
+                    {metric.relativeErrorPct !== null &&
+                      metric.relativeErrorPct !== undefined && (
+                        <span title={PROOF_LAB_COLUMN_HELP.relative}>
+                          {formatProofLabPercent(metric.relativeErrorPct)}
+                        </span>
+                      )}
+                  </footer>
+                  {metric.note && <p className="proof-lab__metric-note">{metric.note}</p>}
+                </>
+              )}
             </article>
           );
         })}
       </div>
-      {summary.length > 0 && (
-        <div className="proof-lab__summary-strip">
-          {summary.map((metric) => (
-            <div key={metric.id} title={metricDescription(metric)}>
-              <span>{metric.label}</span>
-              <strong>
-                {formatMetric(metric.videValue ?? metric.paperValue, 3, ` ${metric.unit}`)}
-              </strong>
-              {metric.description && (
-                <small className="proof-lab__summary-help">{metric.description}</small>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -144,22 +177,49 @@ function DataPointTable({
                 <div className="proof-lab__point-label">
                   <strong>{point.label}</strong>
                   <small>
-                    {point.xLabel} {formatMetric(point.x, 2)} {point.xUnit}
+                    {point.xLabel} {formatProofLabNumber(point.x, 1)} {point.xUnit}
                   </small>
                 </div>
               </td>
-              <td>{formatMetric(point.paperValue, 3, ` ${point.unit}`)}</td>
-              <td>{formatMetric(point.videValue, 3, ` ${point.unit}`)}</td>
-              <td>{formatSigned(point.absoluteError, 3, ` ${point.unit}`)}</td>
+              <td>{formatMetric(point.paperValue, ` ${point.unit}`)}</td>
+              <td>{formatMetric(point.videValue, ` ${point.unit}`)}</td>
+              <td>{formatSigned(point.absoluteError, ` ${point.unit}`)}</td>
               <td>
                 {point.relativeErrorPct === null
                   ? "—"
-                  : formatSigned(point.relativeErrorPct, 1, "%")}
+                  : formatProofLabPercent(point.relativeErrorPct)}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function ChartTooltipContent({
+  active,
+  payload,
+  label,
+  yUnit = " °C",
+}: {
+  active?: boolean;
+  payload?: Array<{ name?: string; value?: number | null; color?: string }>;
+  label?: number;
+  yUnit?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="proof-lab__chart-tooltip">
+      <p>{formatProofLabNumber(label, 1, " s")}</p>
+      {payload.map((entry) => (
+        <p key={entry.name} style={{ color: entry.color }}>
+          {entry.name}:{" "}
+          {entry.value === null || entry.value === undefined
+            ? "—"
+            : formatProofLabNumber(entry.value, 1, yUnit)}
+        </p>
+      ))}
     </div>
   );
 }
@@ -210,14 +270,7 @@ function WindowChart({ entry, window }: { entry: ProofLabCaseResult; window: Win
             axisLine={{ stroke: "#3d4650" }}
             domain={["auto", "auto"]}
           />
-          <Tooltip
-            contentStyle={{
-              background: "#1c2229",
-              border: "1px solid #3d4650",
-              borderRadius: 8,
-              fontSize: 12,
-            }}
-          />
+          <Tooltip content={<ChartTooltipContent yUnit=" °C" />} />
           <Legend />
           <Line
             name="Published study"
@@ -242,6 +295,113 @@ function WindowChart({ entry, window }: { entry: ProofLabCaseResult; window: Win
       </ResponsiveContainer>
     </div>
   );
+}
+
+function measurementTargetLabel(target: ProofLabLibraryEntry["measurementTarget"]): string {
+  if (target === "skin_surface") return "Skin surface temperature";
+  if (target === "thermode_interface") return "Probe / thermode interface";
+  return "Modality-specific curve";
+}
+
+function PaperLibrary({
+  entries,
+  selectedIds,
+  onToggle,
+  onSelectAll,
+  onClear,
+}: {
+  entries: ProofLabLibraryEntry[];
+  selectedIds: string[];
+  onToggle: (caseId: string) => void;
+  onSelectAll: () => void;
+  onClear: () => void;
+}) {
+  const heat = entries.filter((e) => e.modality === "heat");
+  const other = entries.filter((e) => e.modality !== "heat");
+
+  const renderCard = (entry: ProofLabLibraryEntry) => {
+    const selected = selectedIds.includes(entry.caseId);
+    return (
+      <label
+        key={entry.caseId}
+        className={`proof-lab__paper${selected ? " is-selected" : ""}`}
+      >
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggle(entry.caseId)}
+        />
+        <div className="proof-lab__paper-body">
+          <header>
+            <span className={`proof-lab__pill is-modality`}>{modalityLabel(entry.modality)}</span>
+            <span className="proof-lab__paper-status">{entry.status}</span>
+          </header>
+          <h4>{entry.title}</h4>
+          <p className="proof-lab__paper-meta">
+            {entry.site}
+            {entry.setpointC !== null && entry.setpointC !== undefined
+              ? ` · ${entry.setpointC} °C`
+              : ""}
+            {entry.durationS !== null && entry.durationS !== undefined
+              ? ` · ${Math.round(entry.durationS / 60)} min`
+              : ""}
+          </p>
+          <p className="proof-lab__paper-summary">{entry.measurementSummary}</p>
+          {entry.measurementTarget && (
+            <p className="proof-lab__paper-target">
+              Measures: {measurementTargetLabel(entry.measurementTarget)}
+            </p>
+          )}
+          {entry.highlights[0] && (
+            <p className="proof-lab__paper-highlight">{entry.highlights[0]}</p>
+          )}
+        </div>
+      </label>
+    );
+  };
+
+  return (
+    <section className="proof-lab__library">
+      <header className="proof-lab__library-header">
+        <div>
+          <h3>Research library</h3>
+          <p>
+            Pick which published studies to compare your simulation against ({selectedIds.length}{" "}
+            selected).
+          </p>
+        </div>
+        <div className="proof-lab__library-actions">
+          <button type="button" className="sidebar__btn" onClick={onSelectAll}>
+            Select all
+          </button>
+          <button type="button" className="sidebar__btn" onClick={onClear}>
+            Clear
+          </button>
+        </div>
+      </header>
+      {heat.length > 0 && (
+        <>
+          <h4 className="proof-lab__library-group">Heat · tissue temperature studies</h4>
+          <div className="proof-lab__paper-grid">{heat.map(renderCard)}</div>
+        </>
+      )}
+      {other.length > 0 && (
+        <>
+          <h4 className="proof-lab__library-group">Transfer checks · mechanical & electrical</h4>
+          <div className="proof-lab__paper-grid">{other.map(renderCard)}</div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function formatProtocolValue(key: string, value: number): string {
+  if (key === "temperatureC" || key === "baselineSkinTemperatureC" || key === "ambientTemperatureC") {
+    return formatProofLabTemp(value);
+  }
+  if (key === "durationS" || key === "postExposureS") return formatDurationS(value);
+  if (key === "contactAreaMm2") return formatProofLabNumber(value, 1, " mm²");
+  return formatProofLabNumber(value, 1);
 }
 
 function ProtocolCompare({
@@ -283,14 +443,159 @@ function ProtocolCompare({
             return (
               <tr key={key} className={mismatch ? "is-mismatch" : undefined}>
                 <td>{formatParamKey(key)}</td>
-                <td>{p !== undefined ? p : "—"}</td>
-                <td>{y !== undefined ? y : "—"}</td>
+                <td>{p !== undefined ? formatProtocolValue(key, p) : "—"}</td>
+                <td>{y !== undefined ? formatProtocolValue(key, y) : "—"}</td>
               </tr>
             );
           })}
         </tbody>
       </table>
     </div>
+  );
+}
+
+function ProtocolVerdict({
+  entry,
+  window,
+  protocolMatch,
+  onMatchProtocol,
+  matching,
+}: {
+  entry: ProofLabCaseResult;
+  window: WindowComparison;
+  protocolMatch: ProtocolMatchResult;
+  onMatchProtocol: () => void;
+  matching: boolean;
+}) {
+  const rmse = window.metrics.rmseC;
+  const mae = window.metrics.maeC;
+
+  if (!protocolMatch.matched) {
+    return (
+      <section className="proof-lab__verdict verdict-card is-neutral" aria-live="polite">
+        <div className="verdict-card__top">
+          <div className="verdict-card__identity">
+            <strong>{entry.title}</strong>
+            <span>{entry.contactLabel}</span>
+          </div>
+          <div className="verdict-card__badges">
+            <div className="verdict-card__badge is-neutral">
+              <span className="verdict-card__badge-label">Protocol match</span>
+              <span className="verdict-card__badge-value">Mismatch</span>
+              <span className="verdict-card__badge-threshold">
+                Not a fair comparison yet
+              </span>
+            </div>
+          </div>
+        </div>
+        <p className="verdict-card__sentence">{protocolMismatchSentence(protocolMatch.mismatches)}</p>
+        <div className="proof-lab__verdict-actions">
+          <button
+            type="button"
+            className="sidebar__btn sidebar__btn--primary"
+            onClick={onMatchProtocol}
+            disabled={matching}
+          >
+            {matching ? "Applying…" : "Match this study's protocol"}
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  const tone = accuracyTone(rmse);
+  return (
+    <section className={`proof-lab__verdict verdict-card is-${tone}`} aria-live="polite">
+      <div className="verdict-card__top">
+        <div className="verdict-card__identity">
+          <strong>{entry.title}</strong>
+          <span>{entry.contactLabel}</span>
+        </div>
+        <div className="verdict-card__badges">
+          <div className="verdict-card__badge is-close">
+            <span className="verdict-card__badge-label">Protocol match</span>
+            <span className="verdict-card__badge-value">Matched</span>
+            <span className="verdict-card__badge-threshold">Apples-to-apples comparison</span>
+          </div>
+          <div className={`verdict-card__badge is-${tone}`}>
+            <span className="verdict-card__badge-label">Model accuracy</span>
+            <span className="verdict-card__badge-value">
+              {tone === "close" ? "Tracks" : tone === "mixed" ? "Partial" : "Gap"}
+            </span>
+            <span className="verdict-card__badge-threshold">
+              RMSE {formatProofLabNumber(rmse, 1, " °C")}
+            </span>
+          </div>
+        </div>
+      </div>
+      <p className="verdict-card__sentence">{accuracyVerdictSentence(rmse, mae)}</p>
+      <div className="verdict-card__hero">
+        <div className="verdict-card__hero-main">
+          <span className="verdict-card__hero-label">Typical gap (RMSE)</span>
+          <strong className="verdict-card__hero-value">
+            {formatProofLabNumber(rmse, 1)}
+            <span> °C</span>
+          </strong>
+        </div>
+        <div className="verdict-card__hero-side">
+          <div>
+            <span>Avg mismatch (MAE)</span>
+            <strong>{formatProofLabNumber(mae, 1, " °C")}</strong>
+          </div>
+          <div>
+            <span>Bias (you − study)</span>
+            <strong>{formatProofLabSigned(window.metrics.signedBiasC, 1, " °C")}</strong>
+          </div>
+          <div>
+            <span>Time-to-peak error</span>
+            <strong>{formatProofLabSigned(window.metrics.timeToPeakErrorS, 1, " s")}</strong>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MetricDetailSection({
+  entry,
+  window,
+  displayMetrics,
+  protocolMatched,
+}: {
+  entry: ProofLabCaseResult;
+  window: WindowComparison;
+  displayMetrics: ExperimentMetric[];
+  protocolMatched: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="physics-detail proof-lab__detail">
+      <button
+        type="button"
+        className="physics-detail__toggle"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <span className={`result-section__chevron${open ? " is-open" : ""}`}>›</span>
+        Metric detail
+        <span className="physics-detail__hint">protocol · cards · checkpoints</span>
+      </button>
+      {open && (
+        <div className="physics-detail__body">
+          <ProtocolCompare
+            title="Protocol · published study vs your sidebar"
+            paper={entry.paperReferenceInputs}
+            yours={entry.protocolInputs}
+          />
+          <MetricCards metrics={displayMetrics} protocolMatched={protocolMatched} />
+          <h4 className="proof-lab__detail-heading">Checkpoint-by-checkpoint</h4>
+          <DataPointTable
+            points={window.keyDataPoints}
+            emptyLabel="No measured checkpoints in this window."
+          />
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -344,18 +649,31 @@ function AiPanel({
   status,
   error,
   onRefresh,
+  report,
 }: {
   analysis: ProofLabAnalysis | null;
   status: "idle" | "running" | "complete" | "error";
   error: string | null;
   onRefresh: () => void;
+  report: ProofLabReport;
 }) {
+  const protocolByCase = useMemo(() => {
+    const map = new Map<string, ProtocolMatchResult>();
+    for (const entry of report.cases) {
+      map.set(
+        entry.caseId,
+        computeProtocolMatch(entry.paperReferenceInputs, entry.protocolInputs),
+      );
+    }
+    return map;
+  }, [report.cases]);
+
   return (
     <section className="proof-lab__ai">
       <header className="proof-lab__ai-header">
         <div>
           <p className="proof-lab__eyebrow">AI comparison brief</p>
-          <h3>{analysis?.headline ?? "Interpreting paper vs Vide checkpoints"}</h3>
+          <h3>{analysis?.headline ?? "Interpretation beyond the numbers"}</h3>
         </div>
         <div className="proof-lab__ai-actions">
           {analysis && (
@@ -374,35 +692,52 @@ function AiPanel({
         </div>
       </header>
       {status === "running" && (
-        <p className="proof-lab__ai-status">Reading experiment checkpoints and residuals…</p>
+        <p className="proof-lab__ai-status">Reading protocol alignment and residuals…</p>
       )}
       {status === "error" && error && <p className="proof-lab__ai-status is-warn">{error}</p>}
       {analysis && (
         <>
           <p className="proof-lab__ai-summary">{analysis.summary}</p>
           <div className="proof-lab__ai-briefs">
-            {analysis.caseBriefs.map((brief) => (
-              <article key={brief.caseId} className={`proof-lab__ai-brief is-${brief.agreement}`}>
-                <header>
-                  <h4>{brief.headline}</h4>
-                  <span>{brief.agreement}</span>
-                </header>
-                {brief.highlights.length > 0 && (
-                  <ul>
-                    {brief.highlights.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
-                )}
-                {brief.concerns.length > 0 && (
-                  <ul className="is-concern">
-                    {brief.concerns.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
-                )}
-              </article>
-            ))}
+            {analysis.caseBriefs.map((brief) => {
+              const protocolMatch = protocolByCase.get(brief.caseId);
+              const agreementClass =
+                brief.agreement === "protocol-mismatch" ? "protocol-mismatch" : brief.agreement;
+              return (
+                <article
+                  key={brief.caseId}
+                  className={`proof-lab__ai-brief is-${agreementClass}`}
+                >
+                  <header>
+                    <h4>{brief.headline}</h4>
+                    <span>
+                      {brief.agreement === "protocol-mismatch"
+                        ? "Protocol mismatch"
+                        : brief.agreement}
+                    </span>
+                  </header>
+                  {protocolMatch && !protocolMatch.matched && (
+                    <p className="proof-lab__ai-protocol">
+                      {protocolMismatchSentence(protocolMatch.mismatches)}
+                    </p>
+                  )}
+                  {brief.highlights.length > 0 && (
+                    <ul>
+                      {brief.highlights.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {brief.concerns.length > 0 && (
+                    <ul className="is-concern">
+                      {brief.concerns.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  )}
+                </article>
+              );
+            })}
           </div>
         </>
       )}
@@ -412,90 +747,74 @@ function AiPanel({
 
 function CasePanel({
   entry,
-  brief,
+  onMatchProtocol,
+  matching,
 }: {
   entry: ProofLabCaseResult;
-  brief?: ProofLabAnalysis["caseBriefs"][number];
+  onMatchProtocol: (entry: ProofLabCaseResult) => void;
+  matching: boolean;
 }) {
   const [windowIndex, setWindowIndex] = useState(0);
   const window = entry.windows[windowIndex] ?? entry.windows[0];
+  const protocolMatch = useMemo(
+    () => computeProtocolMatch(entry.paperReferenceInputs, entry.protocolInputs),
+    [entry.paperReferenceInputs, entry.protocolInputs],
+  );
+  const displayMetrics = useMemo(
+    () => (window ? windowMetricsForDisplay(window.experimentMetrics) : []),
+    [window],
+  );
   if (!window) return null;
 
   return (
-    <article className="proof-lab__case">
-      <header className="proof-lab__case-header">
-        <div>
-          <div className="proof-lab__case-tags">
-            <span className="proof-lab__pill is-modality">{modalityLabel(entry.modality)}</span>
-            <span className="proof-lab__pill is-user">Your sidebar · {entry.contactLabel}</span>
-            {brief && <span className={`proof-lab__pill is-${brief.agreement}`}>{brief.agreement}</span>}
-          </div>
-          <h3>{entry.title}</h3>
-          <p className="proof-lab__citation">{entry.citation}</p>
+    <article className="proof-lab__case result-story">
+      <header className="proof-lab__case-header proof-lab__case-header--compact">
+        <div className="proof-lab__case-tags">
+          <span className="proof-lab__pill is-modality">{modalityLabel(entry.modality)}</span>
+          <span className="proof-lab__pill is-user">Your sidebar · {entry.contactLabel}</span>
         </div>
-        <div className="proof-lab__case-kpis">
-          <div title={PROOF_LAB_METRIC_HELP.rmse}>
-            <em>Typical gap (RMSE)</em>
-            <strong>{formatMetric(window.metrics.rmseC, 3, " °C")}</strong>
-          </div>
-          <div title={PROOF_LAB_METRIC_HELP.mae}>
-            <em>Avg mismatch (MAE)</em>
-            <strong>{formatMetric(window.metrics.maeC, 3, " °C")}</strong>
-          </div>
-          <div title={PROOF_LAB_METRIC_HELP.signed_bias}>
-            <em>Bias (hot/cool)</em>
-            <strong>{formatSigned(window.metrics.signedBiasC, 3, " °C")}</strong>
-          </div>
-        </div>
+        <p className="proof-lab__citation">{entry.citation}</p>
+        {entry.measurementNote && (
+          <p className="proof-lab__measurement-note">{entry.measurementNote}</p>
+        )}
       </header>
 
-      <p className="proof-lab__lede">
-        {entry.measurementNote} Each card compares a published checkpoint to what your sidebar
-        settings produced. If your temperature or duration differs from the study, large gaps are
-        expected — check the protocol table below.
-      </p>
-
-      <ProtocolCompare
-        title="Protocol · published study vs your sidebar"
-        paper={entry.paperReferenceInputs}
-        yours={entry.protocolInputs}
+      <ProtocolVerdict
+        entry={entry}
+        window={window}
+        protocolMatch={protocolMatch}
+        onMatchProtocol={() => onMatchProtocol(entry)}
+        matching={matching}
       />
 
-      <MetricCards metrics={entry.experimentMetrics.length ? entry.experimentMetrics : window.experimentMetrics} />
-
-      <div className="proof-lab__windows" role="tablist" aria-label="Comparison windows">
-        {entry.windows.map((item, index) => (
-          <button
-            key={item.label}
-            type="button"
-            role="tab"
-            aria-selected={windowIndex === index}
-            className={`proof-lab__window-tab${windowIndex === index ? " is-active" : ""}`}
-            onClick={() => setWindowIndex(index)}
-          >
-            {item.label}
-            <small>{item.sampleCount} pts</small>
-          </button>
-        ))}
-      </div>
-
-      <div className="proof-lab__split">
-        <WindowChart entry={entry} window={window} />
-        <div className="proof-lab__split-side">
-          <h4>Checkpoint-by-checkpoint</h4>
-          <DataPointTable
-            points={window.keyDataPoints}
-            emptyLabel="No measured checkpoints in this window."
-          />
+      {entry.windows.length > 1 && (
+        <div className="proof-lab__windows" role="tablist" aria-label="Comparison windows">
+          {entry.windows.map((item, index) => (
+            <button
+              key={item.label}
+              type="button"
+              role="tab"
+              aria-selected={windowIndex === index}
+              className={`proof-lab__window-tab${windowIndex === index ? " is-active" : ""}`}
+              onClick={() => setWindowIndex(index)}
+            >
+              {item.label}
+              <small>{item.sampleCount} pts</small>
+            </button>
+          ))}
         </div>
-      </div>
-
-      {window.experimentMetrics.length > 0 && entry.windows.length > 1 && (
-        <>
-          <h4 className="proof-lab__section-title">Window metrics · {window.label}</h4>
-          <MetricCards metrics={window.experimentMetrics} />
-        </>
       )}
+
+      <section className="result-story__charts">
+        <WindowChart entry={entry} window={window} />
+      </section>
+
+      <MetricDetailSection
+        entry={entry}
+        window={window}
+        displayMetrics={displayMetrics}
+        protocolMatched={protocolMatch.matched}
+      />
 
       <details className="proof-lab__details">
         <summary>Study notes & full parameter lists</summary>
@@ -513,7 +832,7 @@ function CasePanel({
             <ul>
               {Object.entries(entry.protocolInputs).map(([key, value]) => (
                 <li key={key}>
-                  <code>{key}</code> = {value}
+                  <code>{key}</code> = {formatProtocolValue(key, value)}
                 </li>
               ))}
             </ul>
@@ -523,7 +842,7 @@ function CasePanel({
             <ul>
               {Object.entries(entry.paperReferenceInputs).map(([key, value]) => (
                 <li key={key}>
-                  <code>{key}</code> = {value}
+                  <code>{key}</code> = {formatProtocolValue(key, value)}
                 </li>
               ))}
             </ul>
@@ -549,49 +868,56 @@ function CrossValidationPanel({
   entry: CrossValidationCase;
   brief?: ProofLabAnalysis["caseBriefs"][number];
 }) {
+  const [detailOpen, setDetailOpen] = useState(false);
+  const tone = accuracyTone(entry.rmse);
+
   return (
-    <article className="proof-lab__case">
-      <header className="proof-lab__case-header">
-        <div>
-          <div className="proof-lab__case-tags">
-            <span className="proof-lab__pill is-modality">{modalityLabel(entry.modality)}</span>
-            <span className="proof-lab__pill is-transfer">Transfer check</span>
-            {brief && <span className={`proof-lab__pill is-${brief.agreement}`}>{brief.agreement}</span>}
+    <article className="proof-lab__case result-story">
+      <section className={`proof-lab__verdict verdict-card is-${tone}`} aria-live="polite">
+        <div className="verdict-card__top">
+          <div className="verdict-card__identity">
+            <strong>{entry.title}</strong>
+            <span>Transfer check · {modalityLabel(entry.modality)}</span>
           </div>
-          <h3>{entry.title}</h3>
-          <p className="proof-lab__citation">{entry.citation}</p>
-        </div>
-        <div className="proof-lab__case-kpis">
-          <div>
-            <em>RMSE</em>
-            <strong>
-              {entry.rmse.toFixed(3)} {entry.metricUnit}
-            </strong>
-          </div>
-          <div>
-            <em>MAE</em>
-            <strong>
-              {entry.mae.toFixed(3)} {entry.metricUnit}
-            </strong>
-          </div>
-          <div>
-            <em>Bias</em>
-            <strong>
-              {formatSigned(entry.signedBias, 3)} {entry.metricUnit}
-            </strong>
+          <div className="verdict-card__badges">
+            <div className="verdict-card__badge is-neutral">
+              <span className="verdict-card__badge-label">Comparison type</span>
+              <span className="verdict-card__badge-value">Transfer check</span>
+              <span className="verdict-card__badge-threshold">Cross-model, not calibration</span>
+            </div>
           </div>
         </div>
-      </header>
+        <p className="verdict-card__sentence">
+          Compares Vide model {entry.metricLabel.toLowerCase()} predictions to an independent
+          published curve — high error here means different model families, not a failed sidebar
+          match.
+        </p>
+        <div className="verdict-card__hero">
+          <div className="verdict-card__hero-main">
+            <span className="verdict-card__hero-label">Aggregate RMSE</span>
+            <strong className="verdict-card__hero-value">
+              {formatProofLabNumber(entry.rmse, 1)}
+              <span> {entry.metricUnit}</span>
+            </strong>
+          </div>
+          <div className="verdict-card__hero-side">
+            <div>
+              <span>MAE</span>
+              <strong>
+                {formatProofLabNumber(entry.mae, 1)} {entry.metricUnit}
+              </strong>
+            </div>
+            <div>
+              <span>Bias</span>
+              <strong>
+                {formatProofLabSigned(entry.signedBias, 1, ` ${entry.metricUnit}`)}
+              </strong>
+            </div>
+          </div>
+        </div>
+      </section>
 
-      <p className="proof-lab__lede">
-        Every published {entry.metricLabel.toLowerCase()} is listed beside Vide’s prediction for the
-        same {entry.xLabel.toLowerCase()}. High error here is a visible failed transfer, not a hidden
-        calibration target.
-      </p>
-
-      <MetricCards metrics={entry.experimentMetrics} />
-
-      <div className="proof-lab__split">
+      <section className="result-story__charts">
         <div className="validation-chart proof-lab__chart">
           <ResponsiveContainer width="100%" height={260}>
             <LineChart data={entry.points} margin={{ top: 12, right: 16, bottom: 4, left: 0 }}>
@@ -612,14 +938,7 @@ function CrossValidationPanel({
                 axisLine={{ stroke: "#3d4650" }}
                 domain={["auto", "auto"]}
               />
-              <Tooltip
-                contentStyle={{
-                  background: "#1c2229",
-                  border: "1px solid #3d4650",
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
-              />
+              <Tooltip content={<ChartTooltipContent yUnit={` ${entry.metricUnit}`} />} />
               <Legend />
               <Line
                 name="Published study"
@@ -642,20 +961,37 @@ function CrossValidationPanel({
             </LineChart>
           </ResponsiveContainer>
         </div>
-        <div className="proof-lab__split-side">
-          <h4>Checkpoint-by-checkpoint</h4>
-          <DataPointTable
-            points={entry.keyDataPoints}
-            emptyLabel="No transfer points available."
-          />
-        </div>
-      </div>
+      </section>
+
+      <section className="physics-detail proof-lab__detail">
+        <button
+          type="button"
+          className="physics-detail__toggle"
+          aria-expanded={detailOpen}
+          onClick={() => setDetailOpen(!detailOpen)}
+        >
+          <span className={`result-section__chevron${detailOpen ? " is-open" : ""}`}>›</span>
+          Metric detail
+          <span className="physics-detail__hint">cards · checkpoints</span>
+        </button>
+        {detailOpen && (
+          <div className="physics-detail__body">
+            <MetricCards metrics={entry.experimentMetrics} protocolMatched />
+            <h4 className="proof-lab__detail-heading">Checkpoint-by-checkpoint</h4>
+            <DataPointTable
+              points={entry.keyDataPoints}
+              emptyLabel="No transfer points available."
+            />
+          </div>
+        )}
+      </section>
 
       <ul className="result-warnings">
         {entry.caveats.map((caveat) => (
           <li key={caveat}>{caveat}</li>
         ))}
       </ul>
+      {brief && <p className="proof-lab__brief-note">{brief.headline}</p>}
     </article>
   );
 }
@@ -670,10 +1006,40 @@ export function ProofLabPanel() {
   const analysisStatus = useExperimentStore((s) => s.proofLabAnalysisStatus);
   const analysisError = useExperimentStore((s) => s.proofLabAnalysisError);
   const analyze = useExperimentStore((s) => s.analyzeProofLab);
+  const library = useExperimentStore((s) => s.proofLabLibrary);
+  const libraryStatus = useExperimentStore((s) => s.proofLabLibraryStatus);
+  const selectedCaseIds = useExperimentStore((s) => s.proofLabSelectedCaseIds);
+  const loadLibrary = useExperimentStore((s) => s.loadProofLabLibrary);
+  const toggleCase = useExperimentStore((s) => s.toggleProofLabCase);
+  const selectAllCases = useExperimentStore((s) => s.selectAllProofLabCases);
+  const clearCases = useExperimentStore((s) => s.clearProofLabCases);
   const contactPoints = useExperimentStore((s) => s.contactPoints);
   const assignments = useExperimentStore((s) => s.assignments);
   const selectedContactId = useExperimentStore((s) => s.selectedContactId);
   const selectContact = useExperimentStore((s) => s.selectContact);
+  const applyProofLabStudyProtocol = useExperimentStore((s) => s.applyProofLabStudyProtocol);
+  const [matchingCaseId, setMatchingCaseId] = useState<string | null>(null);
+
+  const handleMatchProtocol = async (entry: ProofLabCaseResult) => {
+    if (!activeContactId) return;
+    setMatchingCaseId(entry.caseId);
+    applyProofLabStudyProtocol(
+      activeContactId,
+      entry.paperReferenceInputs,
+      entry.paperReferenceOptions,
+    );
+    try {
+      await run();
+    } finally {
+      setMatchingCaseId(null);
+    }
+  };
+
+  useEffect(() => {
+    if (libraryStatus === "idle") {
+      void loadLibrary();
+    }
+  }, [libraryStatus, loadLibrary]);
 
   const heatContacts = useMemo(
     () =>
@@ -703,21 +1069,48 @@ export function ProofLabPanel() {
           <p className="proof-lab__eyebrow">Proof Lab</p>
           <h2>Your sidebar vs published studies</h2>
           <p>
-            Runs your contact settings against each study&apos;s published measurements — every
-            checkpoint, not just averages.
+            Choose studies from the library, then run your contact settings against their
+            published checkpoints.
           </p>
         </div>
         <button
           type="button"
           className="sidebar__btn sidebar__btn--primary"
           onClick={() => void run()}
-          disabled={status === "running" || heatContacts.length === 0}
+          disabled={
+            status === "running" ||
+            selectedCaseIds.length === 0 ||
+            (selectedCaseIds.some((id) =>
+              library.find((e) => e.caseId === id)?.requiresHeatContact,
+            ) &&
+              heatContacts.length === 0)
+          }
         >
-          {status === "running" ? "Running…" : report ? "Re-run suite" : "Run comparison"}
+          {status === "running"
+            ? "Running…"
+            : report
+              ? "Re-run comparison"
+              : "Run comparison"}
         </button>
       </header>
 
-      <div className="proof-lab__setup">
+      {libraryStatus === "ready" && library.length > 0 && (
+        <PaperLibrary
+          entries={library}
+          selectedIds={selectedCaseIds}
+          onToggle={toggleCase}
+          onSelectAll={selectAllCases}
+          onClear={clearCases}
+        />
+      )}
+      {libraryStatus === "loading" && (
+        <p className="proof-lab__library-loading">Loading research library…</p>
+      )}
+
+      {selectedCaseIds.some(
+        (id) => library.find((e) => e.caseId === id)?.requiresHeatContact,
+      ) && (
+        <div className="proof-lab__setup">
         <div>
           <h3>Contact used for simulation</h3>
           <p>Select the heat contact whose sidebar settings you want to verify.</p>
@@ -738,9 +1131,13 @@ export function ProofLabPanel() {
         ) : (
           <p className="proof-lab__setup-warn">Add a heat contact in the sidebar first.</p>
         )}
-      </div>
+        </div>
+      )}
 
-      {activeAssignment && (
+      {activeAssignment &&
+        selectedCaseIds.some(
+          (id) => library.find((e) => e.caseId === id)?.requiresHeatContact,
+        ) && (
         <div className="proof-lab__scope-banner">
           <strong>Using your sidebar:</strong>{" "}
           {activeContact?.label ?? "Contact"} ·{" "}
@@ -770,7 +1167,8 @@ export function ProofLabPanel() {
                 <CasePanel
                   key={entry.caseId}
                   entry={entry}
-                  brief={briefById.get(entry.caseId)}
+                  onMatchProtocol={handleMatchProtocol}
+                  matching={matchingCaseId === entry.caseId}
                 />
               ))}
               {report.crossValidationCases.map((entry) => (
@@ -788,14 +1186,20 @@ export function ProofLabPanel() {
               status={analysisStatus}
               error={analysisError}
               onRefresh={() => void analyze()}
+              report={report}
             />
           </aside>
         </div>
       )}
 
-      {!report && status === "idle" && (
+      {!report && status === "idle" && selectedCaseIds.length > 0 && (
         <p className="docked-validation__empty">
-          Run the suite to compare locked literature checkpoints against Vide predictions.
+          Press Run comparison to score your sidebar against the selected studies.
+        </p>
+      )}
+      {!report && status === "idle" && selectedCaseIds.length === 0 && (
+        <p className="docked-validation__empty">
+          Select at least one study from the research library above.
         </p>
       )}
     </div>

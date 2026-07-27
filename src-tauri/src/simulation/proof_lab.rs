@@ -145,8 +145,28 @@ pub struct ProofLabReport {
     pub model_version: &'static str,
     pub generated_at_unix_ms: u64,
     pub disclosure: &'static str,
+    pub selected_case_ids: Vec<String>,
     pub cases: Vec<ProofLabCaseResult>,
     pub cross_validation_cases: Vec<CrossValidationCase>,
+}
+
+/// Catalog entry for the Proof Lab research library UI.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProofLabLibraryEntry {
+    pub case_id: String,
+    pub title: String,
+    pub citation: String,
+    pub modality: &'static str,
+    pub measurement_target: Option<MeasurementTarget>,
+    pub measurement_summary: String,
+    pub site: String,
+    pub setpoint_c: Option<f64>,
+    pub duration_s: Option<f64>,
+    pub status: &'static str,
+    pub requires_heat_contact: bool,
+    pub highlights: Vec<String>,
+    pub unknowns: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -412,6 +432,41 @@ fn heat_window_experiment_metrics(
         None,
     ));
 
+    if let (Some(peak_m), Some(peak_p)) = (peak_measured_c, peak_predicted_c) {
+        out.push(metric_pair(
+            "peak_temperature_error",
+            "Peak temperature gap",
+            "°C",
+            Some(peak_m),
+            Some(peak_p),
+            "derived",
+            Some("Difference between simulated peak and study peak (Vide − paper).".into()),
+            Some(format!("Gap: {:+.3} °C", peak_p - peak_m)),
+        ));
+    } else if let Some(err) = metrics.peak_temperature_error_c {
+        out.push(metric_pair(
+            "peak_temperature_error",
+            "Peak temperature gap",
+            "°C",
+            None,
+            Some(err),
+            "derived",
+            Some("Simulated peak minus study peak.".into()),
+            None,
+        ));
+    }
+
+    out.push(metric_pair(
+        "sample_count",
+        "Aligned data points",
+        "samples",
+        Some(comparison.len() as f64),
+        Some(comparison.len() as f64),
+        "checkpoint",
+        Some("Number of published time points compared in this window.".into()),
+        None,
+    ));
+
     if let Some(rmse) = metrics.rmse_c {
         out.push(metric_pair(
             "rmse",
@@ -470,7 +525,6 @@ fn heat_window_experiment_metrics(
 fn case_level_heat_metrics(
     manifest: &ProofLabCaseManifest,
     user_contact: &SimulationContact,
-    windows: &[WindowComparison],
 ) -> Vec<ExperimentMetric> {
     let mut out = Vec::new();
     let paper_temp = manifest.protocol.parameters.get("temperatureC").copied();
@@ -497,22 +551,6 @@ fn case_level_heat_metrics(
         Some("How long heat was applied in the study vs your sidebar duration.".into()),
         None,
     ));
-    if let Some(window) = windows.first() {
-        out.extend(
-            window
-                .experiment_metrics
-                .iter()
-                .filter(|metric| metric.category != "summary")
-                .cloned(),
-        );
-        out.extend(
-            window
-                .experiment_metrics
-                .iter()
-                .filter(|metric| metric.category == "summary")
-                .cloned(),
-        );
-    }
     out
 }
 
@@ -753,9 +791,107 @@ fn electrical_cross_validation() -> CrossValidationCase {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProofLabRequest {
-    pub contact: SimulationContact,
+    #[serde(default)]
+    pub contact: Option<SimulationContact>,
+    #[serde(default)]
+    pub case_ids: Vec<String>,
     #[serde(default)]
     pub settings: SolverSettings,
+}
+
+const MECHANICAL_CASE_ID: &str = "linares-reswick-rogers-2012";
+const ELECTRICAL_CASE_ID: &str = "hugosdottir-2019-patch-electrode";
+
+fn site_label(manifest: &ProofLabCaseManifest) -> String {
+    match manifest
+        .protocol
+        .options
+        .get("skinProfileId")
+        .map(String::as_str)
+    {
+        Some("volar-forearm") => "Volar forearm".into(),
+        Some("dorsal-forearm") => "Dorsal forearm".into(),
+        Some("palm") => "Palm".into(),
+        Some("sole") => "Sole".into(),
+        _ => "Skin contact site".into(),
+    }
+}
+
+fn library_entry_from_manifest(manifest: &ProofLabCaseManifest) -> ProofLabLibraryEntry {
+    ProofLabLibraryEntry {
+        case_id: manifest.id.clone(),
+        title: manifest.title.clone(),
+        citation: manifest.citation.clone(),
+        modality: "heat",
+        measurement_target: Some(manifest.measurement_target),
+        measurement_summary: manifest.measurement_note.clone(),
+        site: site_label(manifest),
+        setpoint_c: manifest.protocol.parameters.get("temperatureC").copied(),
+        duration_s: manifest.protocol.parameters.get("durationS").copied(),
+        status: "ready",
+        requires_heat_contact: true,
+        highlights: manifest.extracted_from_paper.clone(),
+        unknowns: manifest.unknowns.clone(),
+    }
+}
+
+fn cross_validation_library_entries() -> Vec<ProofLabLibraryEntry> {
+    vec![
+        ProofLabLibraryEntry {
+            case_id: MECHANICAL_CASE_ID.into(),
+            title: "Human Reswick–Rogers pressure-duration curve transfer check".into(),
+            citation: "Linares OA, Mawson AR, Suarez E. J Basic Appl Sci. 2012;8:720-728.".into(),
+            modality: "mechanical",
+            measurement_target: None,
+            measurement_summary:
+                "Independent human clinical pressure–duration reconstruction vs Vide's sigmoid screen."
+                    .into(),
+            site: "Pressure injury criterion (cross-model)".into(),
+            setpoint_c: None,
+            duration_s: None,
+            status: "transfer check",
+            requires_heat_contact: false,
+            highlights: vec![
+                "Human Reswick–Rogers exponential reconstruction from Linares et al.".into(),
+                "Vide uses a separate Linder–Ganz rat-muscle sigmoid — disagreement is expected.".into(),
+            ],
+            unknowns: vec![
+                "Not a patient-specific injury boundary; shear and geometry omitted.".into(),
+            ],
+        },
+        ProofLabLibraryEntry {
+            case_id: ELECTRICAL_CASE_ID.into(),
+            title: "Patch-electrode sensory threshold transfer check".into(),
+            citation: "Hugosdottir R et al. BMC Neurosci. 2019;20:52.".into(),
+            modality: "electrical",
+            measurement_target: None,
+            measurement_summary:
+                "Patch-electrode median strength–duration fit vs Vide's intraepidermal Aδ defaults."
+                    .into(),
+            site: "Cutaneous perception threshold".into(),
+            setpoint_c: None,
+            duration_s: None,
+            status: "transfer check",
+            requires_heat_contact: false,
+            highlights: vec![
+                "Median rheobase 0.40 mA and chronaxie 0.57 ms from patch-electrode study.".into(),
+                "Vide defaults from Kodama intraepidermal data — electrode transfer test.".into(),
+            ],
+            unknowns: vec![
+                "Electrode geometry differs intentionally; poor scores must stay visible.".into(),
+            ],
+        },
+    ]
+}
+
+/// Full research library for the Proof Lab picker.
+pub fn proof_lab_library() -> Result<Vec<ProofLabLibraryEntry>, String> {
+    let mut entries = proof_lab_cases()?
+        .iter()
+        .map(|bundle| library_entry_from_manifest(&bundle.manifest))
+        .collect::<Vec<_>>();
+    entries.extend(cross_validation_library_entries());
+    Ok(entries)
 }
 
 struct ProofLabCaseBundle {
@@ -922,7 +1058,7 @@ fn evaluate_case(
         )?);
     }
 
-    let experiment_metrics = case_level_heat_metrics(&manifest, user_contact, &windows);
+    let experiment_metrics = case_level_heat_metrics(&manifest, user_contact);
 
     let mut caveats = manifest.unknowns.clone();
     caveats.push(manifest.measurement_note.clone());
@@ -971,17 +1107,58 @@ pub fn run_proof_lab(request: ProofLabRequest) -> Result<ProofLabReport, String>
     settings.run_convergence_check = false;
     settings.run_sensitivity = false;
 
-    if request.contact.stimulus_type != "heat" {
-        return Err(
-            "Proof Lab requires a heat contact from the sidebar (stimulus type: heat).".into(),
-        );
+    if request.case_ids.is_empty() {
+        return Err("Select at least one study from the research library.".into());
     }
 
-    let user_contact = request.contact;
-    let cases = proof_lab_cases()?
+    let selected: std::collections::HashSet<String> =
+        request.case_ids.iter().cloned().collect();
+
+    let library = proof_lab_library()?;
+    for id in &request.case_ids {
+        if !library.iter().any(|entry| entry.case_id == *id) {
+            return Err(format!("Unknown Proof Lab study id: {id}"));
+        }
+    }
+
+    let heat_selected = proof_lab_cases()?
         .into_iter()
-        .map(|bundle| evaluate_case(bundle, &user_contact, &settings))
-        .collect::<Result<Vec<_>, _>>()?;
+        .filter(|bundle| selected.contains(&bundle.manifest.id))
+        .collect::<Vec<_>>();
+
+    let needs_heat = !heat_selected.is_empty();
+    let user_contact = if needs_heat {
+        let contact = request.contact.ok_or_else(|| {
+            "Heat studies require a sidebar heat contact. Add one and select it above.".to_string()
+        })?;
+        if contact.stimulus_type != "heat" {
+            return Err(
+                "Selected heat studies require stimulus type heat on the sidebar contact.".into(),
+            );
+        }
+        Some(contact)
+    } else {
+        request.contact
+    };
+
+    let mut cases = Vec::new();
+    if let Some(ref contact) = user_contact {
+        for bundle in heat_selected {
+            cases.push(evaluate_case(bundle, contact, &settings)?);
+        }
+    }
+
+    let mut cross_validation_cases = Vec::new();
+    if selected.contains(MECHANICAL_CASE_ID) {
+        cross_validation_cases.push(mechanical_cross_validation());
+    }
+    if selected.contains(ELECTRICAL_CASE_ID) {
+        cross_validation_cases.push(electrical_cross_validation());
+    }
+
+    if cases.is_empty() && cross_validation_cases.is_empty() {
+        return Err("No studies matched the selection.".into());
+    }
 
     let generated_at_unix_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -991,12 +1168,10 @@ pub fn run_proof_lab(request: ProofLabRequest) -> Result<ProofLabReport, String>
     Ok(ProofLabReport {
         model_version: MODEL_VERSION,
         generated_at_unix_ms,
-        disclosure: "Proof Lab runs your sidebar contact settings against each study's published measurements. Protocol differences (temperature, duration, geometry) are shown explicitly. No experimental pass/fail claim.",
+        disclosure: "Proof Lab runs your sidebar contact settings against each selected study's published measurements. Protocol differences (temperature, duration, geometry) are shown explicitly. No experimental pass/fail claim.",
+        selected_case_ids: request.case_ids,
         cases,
-        cross_validation_cases: vec![
-            mechanical_cross_validation(),
-            electrical_cross_validation(),
-        ],
+        cross_validation_cases,
     })
 }
 
@@ -1057,8 +1232,30 @@ mod tests {
 
     fn mayrovitz_request() -> ProofLabRequest {
         let manifest: ProofLabCaseManifest = serde_json::from_str(MAYROVITZ_PROTOCOL).unwrap();
+        let case_id = manifest.id.clone();
         ProofLabRequest {
-            contact: contact_from_protocol(&manifest),
+            contact: Some(contact_from_protocol(&manifest)),
+            case_ids: vec![case_id],
+            settings: SolverSettings {
+                surface_cell_um: 5.0,
+                max_cell_um: 400.0,
+                growth_ratio: 1.12,
+                time_step_ms: 50.0,
+                run_convergence_check: false,
+                run_sensitivity: false,
+            },
+        }
+    }
+
+    fn all_studies_request() -> ProofLabRequest {
+        let manifest: ProofLabCaseManifest = serde_json::from_str(MAYROVITZ_PROTOCOL).unwrap();
+        ProofLabRequest {
+            contact: Some(contact_from_protocol(&manifest)),
+            case_ids: proof_lab_library()
+                .expect("library")
+                .into_iter()
+                .map(|entry| entry.case_id)
+                .collect(),
             settings: SolverSettings {
                 surface_cell_um: 5.0,
                 max_cell_um: 400.0,
@@ -1071,6 +1268,14 @@ mod tests {
     }
 
     #[test]
+    fn proof_lab_library_lists_all_studies() {
+        let library = proof_lab_library().expect("library");
+        assert_eq!(library.len(), 5);
+        assert!(library.iter().any(|e| e.case_id.contains("mayrovitz")));
+        assert!(library.iter().any(|e| e.modality == "mechanical"));
+    }
+
+    #[test]
     fn user_prediction_does_not_require_ground_truth_at_compile_boundary() {
         let manifest: ProofLabCaseManifest = serde_json::from_str(WANG_EPOS_PROTOCOL).unwrap();
         let contact = contact_from_protocol(&manifest);
@@ -1080,7 +1285,7 @@ mod tests {
 
     #[test]
     fn proof_lab_runs_skin_and_interface_cases() {
-        let report = run_proof_lab(mayrovitz_request()).expect("report");
+        let report = run_proof_lab(all_studies_request()).expect("report");
         assert_eq!(report.cases.len(), 3);
         assert_eq!(report.cross_validation_cases.len(), 2);
         assert!(report

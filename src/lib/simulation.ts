@@ -659,25 +659,48 @@ export type ProofLabReport = {
   modelVersion: string;
   generatedAtUnixMs: number;
   disclosure: string;
+  selectedCaseIds: string[];
   cases: ProofLabCaseResult[];
   crossValidationCases: CrossValidationCase[];
 };
 
+export type ProofLabLibraryEntry = {
+  caseId: string;
+  title: string;
+  citation: string;
+  modality: "heat" | "mechanical" | "electrical" | string;
+  measurementTarget: MeasurementTarget | null;
+  measurementSummary: string;
+  site: string;
+  setpointC: number | null;
+  durationS: number | null;
+  status: string;
+  requiresHeatContact: boolean;
+  highlights: string[];
+  unknowns: string[];
+};
+
 export type ProofLabRequest = {
-  contact: {
+  contact?: {
     id: string;
     label: string;
     stimulusType: string;
     parameters: Record<string, number>;
     options: Record<string, string>;
   };
+  caseIds: string[];
   settings?: SolverSettings;
 };
+
+export async function fetchProofLabLibrary(): Promise<ProofLabLibraryEntry[]> {
+  return invoke<ProofLabLibraryEntry[]>("list_proof_lab_library_cmd");
+}
 
 export async function runProofLab(request: ProofLabRequest): Promise<ProofLabReport> {
   return invoke<ProofLabReport>("run_proof_lab_validation", {
     request: {
       contact: request.contact,
+      caseIds: request.caseIds,
       settings: request.settings ?? {
         surfaceCellUm: 5,
         maxCellUm: 400,

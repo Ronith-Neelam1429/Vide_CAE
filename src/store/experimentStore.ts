@@ -7,9 +7,12 @@ import {
   runProofLab,
   runValidation,
   verifySolver,
+  fetchProofLabLibrary,
   SOLVER_PRESETS,
   type ModelCatalog,
+  type ProofLabLibraryEntry,
   type ProofLabReport,
+  type ProofLabRequest,
   type SimulationResult,
   type SolverPresetId,
   type ValidationSuiteReport,
@@ -17,6 +20,7 @@ import {
 } from "../lib/simulation";
 import { runMechanics, type MechanicsResult } from "../lib/mechanics";
 import { literatureCaseById } from "../lib/literatureCases";
+import { computeProtocolMatch } from "../lib/proofLabProtocol";
 import {
   analyzeProofLabWithAssist,
   fetchAssistStatus,
@@ -126,6 +130,9 @@ type ExperimentState = {
   proofLabAnalysis: ProofLabAnalysis | null;
   proofLabAnalysisStatus: "idle" | "running" | "complete" | "error";
   proofLabAnalysisError: string | null;
+  proofLabLibrary: ProofLabLibraryEntry[];
+  proofLabLibraryStatus: "idle" | "loading" | "ready" | "error";
+  proofLabSelectedCaseIds: string[];
   showProofLab: boolean;
   assistStatus: AssistConfigStatus | null;
   isImporting: boolean;
@@ -207,6 +214,12 @@ type ExperimentState = {
     contactPointId: string,
     suggestion: ProtocolSuggestion,
   ) => void;
+  /** Overwrite sidebar heat settings with a Proof Lab study's published protocol. */
+  applyProofLabStudyProtocol: (
+    contactPointId: string,
+    paperInputs: Record<string, number>,
+    paperOptions: Record<string, string>,
+  ) => void;
   /** Match free text to a literature protocol via assist; auto-apply on high confidence. */
   suggestProtocolFromText: (
     contactPointId: string,
@@ -224,6 +237,11 @@ type ExperimentState = {
   openValidationDashboard: () => void;
   closeValidationDashboard: () => void;
   runProofLab: () => Promise<void>;
+  loadProofLabLibrary: () => Promise<void>;
+  toggleProofLabCase: (caseId: string) => void;
+  setProofLabSelectedCases: (caseIds: string[]) => void;
+  selectAllProofLabCases: () => void;
+  clearProofLabCases: () => void;
   analyzeProofLab: () => Promise<void>;
   openProofLab: () => void;
   closeProofLab: () => void;
@@ -294,6 +312,9 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
   proofLabAnalysis: null,
   proofLabAnalysisStatus: "idle",
   proofLabAnalysisError: null,
+  proofLabLibrary: [],
+  proofLabLibraryStatus: "idle",
+  proofLabSelectedCaseIds: [],
   showProofLab: false,
   assistStatus: null,
   isImporting: false,
@@ -663,6 +684,27 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       ),
     })),
 
+  applyProofLabStudyProtocol: (contactPointId, paperInputs, paperOptions) =>
+    set((state) => ({
+      assignments: state.assignments.map((assignment) =>
+        assignment.contactPointId === contactPointId
+          ? {
+              ...assignment,
+              stimulusType: "heat",
+              parameters: {
+                ...assignment.parameters,
+                ...paperInputs,
+              },
+              options: {
+                ...assignment.options,
+                ...paperOptions,
+              },
+              literatureCaseId: null,
+            }
+          : assignment,
+      ),
+    })),
+
   suggestProtocolFromText: async (contactPointId, text) => {
     const suggestion = await suggestProtocolWithAssist(text, true);
     if (!suggestion) return null;
@@ -748,41 +790,113 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
     }),
   closeProofLab: () => set({ showProofLab: false }),
 
+  loadProofLabLibrary: async () => {
+    if (get().proofLabLibraryStatus === "loading") return;
+    set({ proofLabLibraryStatus: "loading" });
+    try {
+      const proofLabLibrary = await fetchProofLabLibrary();
+      const current = get().proofLabSelectedCaseIds;
+      const defaultSelection =
+        current.length > 0
+          ? current.filter((id) => proofLabLibrary.some((e) => e.caseId === id))
+          : proofLabLibrary
+              .filter((entry) => entry.modality === "heat")
+              .map((entry) => entry.caseId)
+              .slice(0, 1);
+      set({
+        proofLabLibrary,
+        proofLabLibraryStatus: "ready",
+        proofLabSelectedCaseIds: defaultSelection,
+      });
+    } catch {
+      set({ proofLabLibraryStatus: "error" });
+    }
+  },
+
+  toggleProofLabCase: (caseId) =>
+    set((state) => {
+      const selected = new Set(state.proofLabSelectedCaseIds);
+      if (selected.has(caseId)) {
+        selected.delete(caseId);
+      } else {
+        selected.add(caseId);
+      }
+      return { proofLabSelectedCaseIds: [...selected] };
+    }),
+
+  setProofLabSelectedCases: (caseIds) => set({ proofLabSelectedCaseIds: caseIds }),
+
+  selectAllProofLabCases: () =>
+    set((state) => ({
+      proofLabSelectedCaseIds: state.proofLabLibrary.map((entry) => entry.caseId),
+    })),
+
+  clearProofLabCases: () => set({ proofLabSelectedCaseIds: [] }),
+
   runProofLab: async () => {
     const state = get();
     const settings = SOLVER_PRESETS[state.solverPreset].settings;
-    const contactId = state.selectedContactId ?? state.contactPoints[0]?.id ?? null;
-    if (!contactId) {
+    const selectedCaseIds = state.proofLabSelectedCaseIds;
+
+    if (selectedCaseIds.length === 0) {
       set({
         proofLabStatus: "error",
-        proofLabError: "Add a contact point before running Proof Lab.",
+        proofLabError: "Select at least one study from the research library.",
         showProofLab: true,
         bottomPanelTab: "proof-lab",
         bottomPanelExpanded: true,
       });
       return;
     }
-    const assignment = state.assignments.find((a) => a.contactPointId === contactId);
-    const contactPoint = state.contactPoints.find((c) => c.id === contactId);
-    if (!assignment || !contactPoint) {
-      set({
-        proofLabStatus: "error",
-        proofLabError: "Select a contact with stimulus settings in the sidebar.",
-        showProofLab: true,
-        bottomPanelTab: "proof-lab",
-        bottomPanelExpanded: true,
-      });
-      return;
-    }
-    if (assignment.stimulusType !== "heat") {
-      set({
-        proofLabStatus: "error",
-        proofLabError: "Proof Lab heat cases require a heat contact — set stimulus type to heat.",
-        showProofLab: true,
-        bottomPanelTab: "proof-lab",
-        bottomPanelExpanded: true,
-      });
-      return;
+
+    const selectedEntries = state.proofLabLibrary.filter((entry) =>
+      selectedCaseIds.includes(entry.caseId),
+    );
+    const needsHeat = selectedEntries.some((entry) => entry.requiresHeatContact);
+
+    let contactPayload: ProofLabRequest["contact"] | undefined;
+    if (needsHeat) {
+      const contactId = state.selectedContactId ?? state.contactPoints[0]?.id ?? null;
+      if (!contactId) {
+        set({
+          proofLabStatus: "error",
+          proofLabError: "Add a contact point before running heat studies.",
+          showProofLab: true,
+          bottomPanelTab: "proof-lab",
+          bottomPanelExpanded: true,
+        });
+        return;
+      }
+      const assignment = state.assignments.find((a) => a.contactPointId === contactId);
+      const contactPoint = state.contactPoints.find((c) => c.id === contactId);
+      if (!assignment || !contactPoint) {
+        set({
+          proofLabStatus: "error",
+          proofLabError: "Select a contact with stimulus settings in the sidebar.",
+          showProofLab: true,
+          bottomPanelTab: "proof-lab",
+          bottomPanelExpanded: true,
+        });
+        return;
+      }
+      if (assignment.stimulusType !== "heat") {
+        set({
+          proofLabStatus: "error",
+          proofLabError:
+            "Selected heat studies require a heat contact — set stimulus type to heat.",
+          showProofLab: true,
+          bottomPanelTab: "proof-lab",
+          bottomPanelExpanded: true,
+        });
+        return;
+      }
+      contactPayload = {
+        id: contactPoint.id,
+        label: contactPoint.label,
+        stimulusType: assignment.stimulusType,
+        parameters: assignment.parameters,
+        options: assignment.options,
+      };
     }
 
     set({
@@ -797,13 +911,8 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
     });
     try {
       const proofLabResult = await runProofLab({
-        contact: {
-          id: contactPoint.id,
-          label: contactPoint.label,
-          stimulusType: assignment.stimulusType,
-          parameters: assignment.parameters,
-          options: assignment.options,
-        },
+        contact: contactPayload,
+        caseIds: selectedCaseIds,
         settings: {
           ...settings,
           timeStepMs: Math.max(settings.timeStepMs, 50),
@@ -851,6 +960,12 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
           measurementNote: entry.measurementNote,
           extractedFromPaper: entry.extractedFromPaper,
           unknowns: entry.unknowns,
+          protocolInputs: entry.protocolInputs,
+          paperReferenceInputs: entry.paperReferenceInputs,
+          protocolMatch: computeProtocolMatch(
+            entry.paperReferenceInputs,
+            entry.protocolInputs,
+          ),
           experimentMetrics: entry.experimentMetrics,
           windows: entry.windows.map((window) => ({
             label: window.label,
