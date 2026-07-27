@@ -24,16 +24,7 @@ type StimulusFormProps = {
 
 type Option = { value: string; label: string; group?: string };
 
-/** Always-visible fields for a runnable experiment. */
-const PRIMARY_KEYS = new Set([
-  "skinProfileId",
-  "temperatureC",
-  "durationS",
-  "contactAreaMm2",
-  "appliedPressureKpa",
-  "holdDurationS",
-]);
-
+/** Always-visible heat fields for a runnable experiment. */
 function formatConductivity(value: number): string {
   return `${value} W/m·K`;
 }
@@ -205,6 +196,39 @@ function ChoiceInput({
   );
 }
 
+function HeatTimelinePreview({
+  parameters,
+}: {
+  parameters: Record<string, number>;
+}) {
+  const hold = parameters.timelineHoldS ?? 10;
+  const ramp = parameters.timelineRampS ?? 5;
+  const release = parameters.timelineReleaseS ?? 10;
+  const repeats = Math.max(1, Math.round(parameters.timelineRepeats ?? 1));
+  const start = parameters.temperatureC ?? 44;
+  const target = parameters.timelineRampTargetC ?? 46;
+  const total = (hold + ramp + release) * repeats;
+  return (
+    <div className="timeline-editor" aria-label="Thermal protocol waveform summary">
+      <div className="timeline-editor__wave">
+        <span style={{ flex: Math.max(hold, 1) }}>
+          Hold {start.toFixed(1)} °C · {hold}s
+        </span>
+        <span className="is-ramp" style={{ flex: Math.max(ramp, 1) }}>
+          Ramp → {target.toFixed(1)} °C · {ramp}s
+        </span>
+        <span className="is-release" style={{ flex: Math.max(release, 1) }}>
+          Release · {release}s
+        </span>
+      </div>
+      <small>
+        Repeat {repeats}× · active protocol {total.toFixed(0)} s · damage and CEM43
+        accumulate continuously
+      </small>
+    </div>
+  );
+}
+
 export function StimulusForm({ contactPointId }: StimulusFormProps) {
   const assignment = useExperimentStore((s) =>
     s.assignments.find((a) => a.contactPointId === contactPointId),
@@ -246,22 +270,114 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
     ? visibleFields(definition, assignment.parameters, assignment.options)
     : [];
 
-  const primaryFields = fields.filter((field) => PRIMARY_KEYS.has(field.key));
-  // Keep a stable primary order: skin → temp/pressure → duration → area
-  const primaryOrder = [
+  const cyclic = assignment.options.loadingMode === "cyclic";
+  const electricalDrive = assignment.options.electricalDriveMode ?? "current";
+  const electricalWaveform = assignment.options.waveformType ?? "pulsed";
+  const heatTimeline = assignment.options.protocolMode === "timeline";
+  const pressurePrimaryKeys = new Set(
+    cyclic
+      ? [
+          "loadingMode",
+          "skinProfileId",
+          "appliedPressureKpa",
+          "waveformShape",
+          "frequencyHz",
+          "dutyCycle",
+          "cycles",
+        ]
+      : [
+          "loadingMode",
+          "skinProfileId",
+          "appliedPressureKpa",
+          "holdDurationS",
+          "recoveryS",
+        ],
+  );
+  const electricalPrimaryKeys = new Set([
+    "skinProfileId",
+    "waveformType",
+    "electricalDriveMode",
+    electricalDrive === "voltage" ? "voltageV" : "currentMa",
+    ...(electricalWaveform === "pulsed" ? ["pulseDurationUs"] : ["frequencyHz"]),
+    "contactAreaMm2",
+    "durationS",
+  ]);
+  const heatPrimaryKeys = new Set([
+    "protocolMode",
     "skinProfileId",
     "temperatureC",
-    "appliedPressureKpa",
-    "durationS",
-    "holdDurationS",
+    ...(heatTimeline
+      ? [
+          "timelineHoldS",
+          "timelineRampTargetC",
+          "timelineRampS",
+          "timelineReleaseS",
+          "timelineRepeats",
+        ]
+      : ["durationS"]),
     "contactAreaMm2",
-  ];
+  ]);
+  const primaryKeys =
+    assignment.stimulusType === "pressure"
+      ? pressurePrimaryKeys
+      : assignment.stimulusType === "electrical"
+        ? electricalPrimaryKeys
+        : heatPrimaryKeys;
+  const primaryFields = fields.filter((field) => primaryKeys.has(field.key));
+  const primaryOrder =
+    assignment.stimulusType === "pressure"
+      ? cyclic
+        ? [
+            "loadingMode",
+            "skinProfileId",
+            "appliedPressureKpa",
+            "waveformShape",
+            "frequencyHz",
+            "dutyCycle",
+            "cycles",
+          ]
+        : [
+            "loadingMode",
+            "skinProfileId",
+            "appliedPressureKpa",
+            "holdDurationS",
+            "recoveryS",
+          ]
+      : assignment.stimulusType === "electrical"
+        ? [
+            "skinProfileId",
+            "waveformType",
+            "electricalDriveMode",
+            electricalDrive === "voltage" ? "voltageV" : "currentMa",
+            electricalWaveform === "pulsed" ? "pulseDurationUs" : "frequencyHz",
+            "contactAreaMm2",
+            "durationS",
+          ]
+        : heatTimeline
+          ? [
+              "protocolMode",
+              "skinProfileId",
+              "temperatureC",
+              "timelineHoldS",
+              "timelineRampTargetC",
+              "timelineRampS",
+              "timelineReleaseS",
+              "timelineRepeats",
+              "contactAreaMm2",
+            ]
+          : [
+              "protocolMode",
+              "skinProfileId",
+              "temperatureC",
+              "durationS",
+              "contactAreaMm2",
+            ];
   primaryFields.sort(
     (a, b) => primaryOrder.indexOf(a.key) - primaryOrder.indexOf(b.key),
   );
 
   const advancedFields = sortFieldsByImpact(
-    fields.filter((field) => !PRIMARY_KEYS.has(field.key)),
+    fields.filter((field) => !primaryKeys.has(field.key)),
     sensitivity,
   );
 
@@ -330,7 +446,9 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
           }}
         >
           <option value="">Choose a starting scenario…</option>
-          {STIMULUS_PRESETS.map((preset) => (
+          {STIMULUS_PRESETS.filter(
+            (preset) => preset.stimulusType === assignment.stimulusType,
+          ).map((preset) => (
             <option key={preset.id} value={preset.id}>
               {preset.label}
             </option>
@@ -346,6 +464,9 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
       )}
 
       <div className="stimulus-form__primary">{primaryFields.map((f) => renderField(f, false))}</div>
+      {assignment.stimulusType === "heat" && heatTimeline && (
+        <HeatTimelinePreview parameters={assignment.parameters} />
+      )}
 
       {advancedFields.length > 0 && (
         <section className="stimulus-advanced">

@@ -32,7 +32,7 @@ use solver::{
     build_mesh, steady_state, BloodProperties, DeviceControl, DeviceModel, LayerMaterial,
     PerfusionModel, Phase, SolverState, SurfaceCoupling,
 };
-use timeline::ProtocolTimeline;
+use timeline::{ProtocolTimeline, TimelineSegment, TimelineSegmentKind};
 use verification::{convergence_metric, ConvergenceReport, VerificationSuite};
 
 /// Combined natural convection and linearised radiation from bare skin or a
@@ -230,6 +230,57 @@ pub struct ContactSimulationResult {
     /// Surface temperature vs radius at end of run (axisymmetric mode only).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub radial_profile: Vec<RadialSample>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub electrical: Option<ElectricalReport>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElectricalLayerResult {
+    pub name: &'static str,
+    pub depth_start_mm: f64,
+    pub depth_end_mm: f64,
+    pub conductivity_s_per_m: f64,
+    pub conductivity_confidence: &'static str,
+    pub current_density_a_per_m2: f64,
+    pub power_density_w_per_m3: f64,
+    pub voltage_drop_v: f64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NerveActivationResult {
+    pub pulse_duration_us: f64,
+    pub applied_current_ma: f64,
+    pub threshold_current_ma: f64,
+    pub rheobase_ma: f64,
+    pub chronaxie_us: f64,
+    pub activation_margin: f64,
+    pub classification: &'static str,
+    pub confidence: &'static str,
+    pub citation: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElectricalReport {
+    pub waveform_type: String,
+    pub drive_mode: String,
+    pub peak_current_ma: f64,
+    pub rms_current_ma: f64,
+    pub applied_voltage_v: f64,
+    pub tissue_resistance_ohm: f64,
+    pub interface_impedance_ohm: f64,
+    pub total_impedance_ohm: f64,
+    pub current_density_a_per_m2: f64,
+    pub total_power_w: f64,
+    pub charge_per_pulse_uc: f64,
+    pub charge_density_uc_per_cm2: f64,
+    pub layers: Vec<ElectricalLayerResult>,
+    pub nerve_activation: NerveActivationResult,
+    pub return_path_assumption: &'static str,
+    pub confidence: &'static str,
+    pub citation: &'static str,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -272,11 +323,44 @@ pub struct ResultSummary {
     pub dermal_base_depth_mm: f64,
     pub omega_basal: f64,
     pub omega_dermal_base: f64,
+    /// Sapareto-Dewey cumulative equivalent minutes at 43 °C, evaluated
+    /// from the basal-layer temperature history.
+    pub cem43_basal_minutes: f64,
+    /// Reference dose used only to flag disagreement; not a universal injury
+    /// threshold across tissues or heating rates.
+    pub cem43_reference_minutes: f64,
+    pub thermal_dose_disagreement: bool,
+    pub comfort_classification: &'static str,
     /// Depth at which the damage integral reaches unity, if it does.
     pub damage_depth_mm: Option<f64>,
     pub risk_classification: &'static str,
     pub peak_surface_flux_w_per_m2: f64,
     pub total_energy_delivered_j: f64,
+}
+
+fn cem43_minutes(series: &[ThermalSample]) -> f64 {
+    series
+        .windows(2)
+        .map(|pair| {
+            let dt_minutes = (pair[1].time_s - pair[0].time_s).max(0.0) / 60.0;
+            let temperature_c =
+                (pair[0].basal_temperature_c + pair[1].basal_temperature_c) * 0.5;
+            let r: f64 = if temperature_c > 43.0 { 0.5 } else { 0.25 };
+            dt_minutes * r.powf(43.0 - temperature_c)
+        })
+        .sum()
+}
+
+fn comfort_classification(peak_surface_c: f64) -> &'static str {
+    if peak_surface_c < 38.0 {
+        "Comfortable"
+    } else if peak_surface_c < 43.0 {
+        "Warm"
+    } else if peak_surface_c < 45.0 {
+        "Uncomfortable"
+    } else {
+        "Painful"
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -372,6 +456,11 @@ pub(crate) enum DeviceSpec {
 #[derive(Debug, Clone)]
 pub(crate) struct HeatCase {
     layers: Vec<LayerMaterial>,
+    /// Additional volumetric heat source active only during exposure, used by
+    /// electrical Joule heating. Indexed by tissue layer.
+    exposure_source_w_per_m3: Vec<f64>,
+    protocol_timeline: ProtocolTimeline,
+    uses_thermal_timeline: bool,
     blood: BloodProperties,
     core_c: f64,
     baseline_skin_c: f64,
@@ -589,27 +678,108 @@ pub(crate) fn solve_case(
         );
     }
 
-    let exposure_phase = match case.device {
-        DeviceSpec::Ideal { setpoint_c } => Phase {
-            duration_s: case.exposure_s,
-            surface: SurfaceCoupling::Conductance {
-                conductance: case.contact_conductance,
-                external_c: setpoint_c,
-            },
-            device: None,
-        },
-        DeviceSpec::Dynamic(device) => Phase {
-            duration_s: case.exposure_s,
-            surface: SurfaceCoupling::Device {
-                conductance: case.contact_conductance,
-            },
-            device: Some(device),
-        },
-    };
+    for cell in &mut state.mesh.cells {
+        cell.metabolic_w_per_m3 += case
+            .exposure_source_w_per_m3
+            .get(cell.layer_index)
+            .copied()
+            .unwrap_or(0.0);
+    }
 
-    state.run_phase(exposure_phase, dt, case.damage, |state, flux| {
-        observe(state, flux, "exposure")
-    });
+    if case.uses_thermal_timeline {
+        for segment in case
+            .protocol_timeline
+            .segments
+            .iter()
+            .filter(|segment| segment.start_value.is_some() && segment.duration_s > 0.0)
+        {
+            match segment.kind {
+                TimelineSegmentKind::Hold => {
+                    state.run_phase(
+                        Phase {
+                            duration_s: segment.duration_s,
+                            surface: SurfaceCoupling::Conductance {
+                                conductance: case.contact_conductance,
+                                external_c: segment.start_value.unwrap_or(setpoint_c),
+                            },
+                            device: None,
+                        },
+                        dt,
+                        case.damage,
+                        |state, flux| observe(state, flux, "hold"),
+                    );
+                }
+                TimelineSegmentKind::Ramp => {
+                    let start = segment.start_value.unwrap_or(setpoint_c);
+                    let end = segment.end_value.unwrap_or(start);
+                    let pieces = (segment.duration_s / 0.5).ceil().clamp(1.0, 200.0) as usize;
+                    for piece in 0..pieces {
+                        let fraction = (piece as f64 + 0.5) / pieces as f64;
+                        let external_c = start + (end - start) * fraction;
+                        state.run_phase(
+                            Phase {
+                                duration_s: segment.duration_s / pieces as f64,
+                                surface: SurfaceCoupling::Conductance {
+                                    conductance: case.contact_conductance,
+                                    external_c,
+                                },
+                                device: None,
+                            },
+                            dt,
+                            case.damage,
+                            |state, flux| observe(state, flux, "ramp"),
+                        );
+                    }
+                }
+                TimelineSegmentKind::Release => {
+                    state.run_phase(
+                        Phase {
+                            duration_s: segment.duration_s,
+                            surface: SurfaceCoupling::Conductance {
+                                conductance: AMBIENT_COEFFICIENT_W_PER_M2_K,
+                                external_c: case.ambient_c,
+                            },
+                            device: None,
+                        },
+                        dt,
+                        case.damage,
+                        |state, flux| observe(state, flux, "release"),
+                    );
+                }
+                TimelineSegmentKind::Repeat => {}
+            }
+        }
+    } else {
+        let exposure_phase = match case.device {
+            DeviceSpec::Ideal { setpoint_c } => Phase {
+                duration_s: case.exposure_s,
+                surface: SurfaceCoupling::Conductance {
+                    conductance: case.contact_conductance,
+                    external_c: setpoint_c,
+                },
+                device: None,
+            },
+            DeviceSpec::Dynamic(device) => Phase {
+                duration_s: case.exposure_s,
+                surface: SurfaceCoupling::Device {
+                    conductance: case.contact_conductance,
+                },
+                device: Some(device),
+            },
+        };
+
+        state.run_phase(exposure_phase, dt, case.damage, |state, flux| {
+            observe(state, flux, "exposure")
+        });
+    }
+
+    for cell in &mut state.mesh.cells {
+        cell.metabolic_w_per_m3 -= case
+            .exposure_source_w_per_m3
+            .get(cell.layer_index)
+            .copied()
+            .unwrap_or(0.0);
+    }
 
     // Once the device is removed the skin keeps cooling slowly, and the damage
     // integral keeps accumulating while it is still above threshold. Stopping
@@ -760,9 +930,16 @@ fn validate(contact: &SimulationContact) -> Result<(), String> {
             contact.label
         )
     })?;
-    let duration = contact
-        .number("durationS")
-        .ok_or_else(|| format!("{}: heat stimulus is missing a duration.", contact.label))?;
+    let duration = if contact.text("protocolMode", "constant") == "timeline" {
+        let per_cycle = contact.number_or("timelineHoldS", 10.0).max(0.0)
+            + contact.number_or("timelineRampS", 5.0).max(0.0)
+            + contact.number_or("timelineReleaseS", 10.0).max(0.0);
+        per_cycle * contact.number_or("timelineRepeats", 1.0).round().clamp(1.0, 1000.0)
+    } else {
+        contact
+            .number("durationS")
+            .ok_or_else(|| format!("{}: heat stimulus is missing a duration.", contact.label))?
+    };
 
     if !(20.0..=150.0).contains(&setpoint) {
         return Err(format!(
@@ -773,9 +950,9 @@ fn validate(contact: &SimulationContact) -> Result<(), String> {
     let pre_exposure = contact.number_or("preExposureS", 0.0).max(0.0);
     let post_exposure = contact.number_or("postExposureS", 0.0).max(0.0);
     let total_s = pre_exposure + duration + post_exposure;
-    if !(0.1..=3600.0).contains(&duration) {
+    if !(0.1..=7200.0).contains(&duration) {
         return Err(format!(
-            "{}: duration {:.2} s is outside the supported 0.1–3600 s range.",
+            "{}: active protocol duration {:.2} s is outside the supported 0.1–7200 s range.",
             contact.label, duration
         ));
     }
@@ -792,6 +969,158 @@ fn validate(contact: &SimulationContact) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+fn validate_electrical(contact: &SimulationContact) -> Result<(), String> {
+    let duration = contact
+        .number("durationS")
+        .ok_or_else(|| format!("{}: electrical stimulus is missing a duration.", contact.label))?;
+    if !(0.1..=3600.0).contains(&duration) {
+        return Err(format!(
+            "{}: duration {:.2} s is outside the supported 0.1–3600 s range.",
+            contact.label, duration
+        ));
+    }
+    if contact.number_or("contactAreaMm2", 400.0) <= 0.0 {
+        return Err(format!("{}: electrode area must be positive.", contact.label));
+    }
+    let drive = contact.text("electricalDriveMode", "current");
+    if drive == "voltage" {
+        if contact.number_or("voltageV", 0.0) < 0.0 {
+            return Err(format!("{}: voltage cannot be negative.", contact.label));
+        }
+    } else if contact.number_or("currentMa", 0.0) < 0.0 {
+        return Err(format!("{}: current cannot be negative.", contact.label));
+    }
+    Ok(())
+}
+
+pub(crate) fn nerve_threshold_current_ma(pulse_duration_us: f64) -> f64 {
+    const RHEOBASE_MA: f64 = 0.178;
+    const CHRONAXIE_US: f64 = 270.0;
+    RHEOBASE_MA * (1.0 + CHRONAXIE_US / pulse_duration_us.max(1.0))
+}
+
+fn electrical_report(
+    contact: &SimulationContact,
+    profile: &'static SkinProfile,
+) -> Result<(ElectricalReport, Vec<f64>), String> {
+    let area_m2 = contact.number_or("contactAreaMm2", 400.0).max(1.0) * 1.0e-6;
+    let interface_impedance_ohm = contact.number_or("interfaceImpedanceOhm", 500.0).max(0.0);
+    let drive_mode = contact.text("electricalDriveMode", "current");
+    let waveform_type = contact.text("waveformType", "pulsed");
+    let pulse_duration_us = contact.number_or("pulseDurationUs", 250.0).max(1.0);
+    let frequency_hz = contact.number_or("frequencyHz", 50.0).max(0.01);
+    let default_duty = (pulse_duration_us * frequency_hz / 1.0e6 * 100.0).clamp(0.01, 100.0);
+    let duty_fraction = (contact.number_or("electricalDutyCycle", default_duty) / 100.0)
+        .clamp(0.0001, 1.0);
+
+    let tissue_areal_resistance: f64 = profile
+        .layers
+        .iter()
+        .map(|layer| {
+            layer.thickness_m.value
+                / layer.electrical_conductivity_s_per_m.value.max(1.0e-10)
+        })
+        .sum();
+    let tissue_resistance_ohm = tissue_areal_resistance / area_m2;
+    let total_impedance_ohm = tissue_resistance_ohm + interface_impedance_ohm;
+    let (peak_current_a, applied_voltage_v) = if drive_mode == "voltage" {
+        let voltage = contact.number_or("voltageV", 10.0).max(0.0);
+        (voltage / total_impedance_ohm.max(1.0e-9), voltage)
+    } else {
+        let current = contact.number_or("currentMa", 5.0).max(0.0) / 1000.0;
+        (current, current * total_impedance_ohm)
+    };
+    let rms_factor = match waveform_type {
+        "ac" => std::f64::consts::FRAC_1_SQRT_2,
+        "pulsed" => duty_fraction.sqrt(),
+        _ => 1.0,
+    };
+    let rms_current_a = peak_current_a * rms_factor;
+    let peak_current_density = peak_current_a / area_m2;
+    let rms_current_density = rms_current_a / area_m2;
+
+    if !rms_current_density.is_finite() || rms_current_density > 1.0e7 {
+        return Err(format!(
+            "{}: resolved current density is outside the supported range; check current, voltage, electrode area and impedance.",
+            contact.label
+        ));
+    }
+
+    let mut depth_m = 0.0;
+    let mut sources = Vec::with_capacity(profile.layers.len());
+    let mut layers = Vec::with_capacity(profile.layers.len());
+    for layer in profile.layers {
+        let sigma = layer.electrical_conductivity_s_per_m.value.max(1.0e-10);
+        let power_density = rms_current_density.powi(2) / sigma;
+        let resistance = layer.thickness_m.value / (sigma * area_m2);
+        let depth_end_m = depth_m + layer.thickness_m.value;
+        sources.push(power_density);
+        layers.push(ElectricalLayerResult {
+            name: layer.name,
+            depth_start_mm: depth_m * 1000.0,
+            depth_end_mm: depth_end_m * 1000.0,
+            conductivity_s_per_m: sigma,
+            conductivity_confidence: layer.electrical_conductivity_s_per_m.review_status,
+            current_density_a_per_m2: peak_current_density,
+            power_density_w_per_m3: power_density,
+            voltage_drop_v: peak_current_a * resistance,
+        });
+        depth_m = depth_end_m;
+    }
+
+    // Human in-vivo Aδ-fibre starting point. It came from an intraepidermal
+    // electrode protocol, so surface-electrode use is explicitly extrapolated.
+    let rheobase_ma = 0.178;
+    let chronaxie_us = 270.0;
+    let threshold_current_ma = nerve_threshold_current_ma(pulse_duration_us);
+    let peak_current_ma = peak_current_a * 1000.0;
+    let activation_margin = peak_current_ma / threshold_current_ma.max(1.0e-12);
+    let classification = if activation_margin < 1.0 {
+        "Sub-threshold"
+    } else if activation_margin < 2.0 {
+        "Perceptible"
+    } else if activation_margin < 4.0 {
+        "Motor stimulation"
+    } else {
+        "Painful"
+    };
+    let charge_per_pulse_uc = peak_current_ma * pulse_duration_us / 1000.0;
+    let area_cm2 = area_m2 * 1.0e4;
+
+    Ok((
+        ElectricalReport {
+            waveform_type: waveform_type.to_string(),
+            drive_mode: drive_mode.to_string(),
+            peak_current_ma,
+            rms_current_ma: rms_current_a * 1000.0,
+            applied_voltage_v,
+            tissue_resistance_ohm,
+            interface_impedance_ohm,
+            total_impedance_ohm,
+            current_density_a_per_m2: peak_current_density,
+            total_power_w: rms_current_a.powi(2) * total_impedance_ohm,
+            charge_per_pulse_uc,
+            charge_density_uc_per_cm2: charge_per_pulse_uc / area_cm2.max(1.0e-12),
+            layers,
+            nerve_activation: NerveActivationResult {
+                pulse_duration_us,
+                applied_current_ma: peak_current_ma,
+                threshold_current_ma,
+                rheobase_ma,
+                chronaxie_us,
+                activation_margin,
+                classification,
+                confidence: "extrapolated",
+                citation: "Kodama et al. Front Neurosci. 2020;14:588056 (human in-vivo Aδ-fibre strength-duration measurements).",
+            },
+            return_path_assumption: "Ideal remote return electrode; the 3D return-current path is not resolved.",
+            confidence: "screening",
+            citation: "IT'IS low-frequency conductivity database; Joule q = J²/σ; Weiss-Lapicque strength-duration law.",
+        },
+        sources,
+    ))
 }
 
 fn perfusion_model_from_contact(contact: &SimulationContact) -> PerfusionModel {
@@ -843,8 +1172,80 @@ pub(crate) fn build_case(
         _ => DeviceSpec::Ideal { setpoint_c },
     };
 
+    let uses_thermal_timeline =
+        contact.stimulus_type == "heat" && contact.text("protocolMode", "constant") == "timeline";
+    let post_exposure_s = contact.number_or("postExposureS", 0.0).max(0.0);
+    let (exposure_s, protocol_timeline) = if uses_thermal_timeline {
+        let hold_s = contact.number_or("timelineHoldS", 10.0).max(0.0);
+        let ramp_s = contact.number_or("timelineRampS", 5.0).max(0.0);
+        let release_s = contact.number_or("timelineReleaseS", 10.0).max(0.0);
+        let repeats = contact.number_or("timelineRepeats", 1.0).round().clamp(1.0, 1000.0) as usize;
+        let ramp_target_c = contact.number_or("timelineRampTargetC", setpoint_c);
+        let mut segments = Vec::with_capacity(repeats * 3 + usize::from(post_exposure_s > 0.0));
+        for cycle in 0..repeats {
+            if hold_s > 0.0 {
+                segments.push(TimelineSegment {
+                    kind: TimelineSegmentKind::Hold,
+                    duration_s: hold_s,
+                    repetitions: 1,
+                    duty_cycle: None,
+                    label: format!("Cycle {} hold", cycle + 1),
+                    start_value: Some(setpoint_c),
+                    end_value: Some(setpoint_c),
+                    value_unit: Some("°C".to_string()),
+                });
+            }
+            if ramp_s > 0.0 {
+                segments.push(TimelineSegment {
+                    kind: TimelineSegmentKind::Ramp,
+                    duration_s: ramp_s,
+                    repetitions: 1,
+                    duty_cycle: None,
+                    label: format!("Cycle {} ramp", cycle + 1),
+                    start_value: Some(setpoint_c),
+                    end_value: Some(ramp_target_c),
+                    value_unit: Some("°C".to_string()),
+                });
+            }
+            if release_s > 0.0 {
+                segments.push(TimelineSegment {
+                    kind: TimelineSegmentKind::Release,
+                    duration_s: release_s,
+                    repetitions: 1,
+                    duty_cycle: None,
+                    label: format!("Cycle {} release", cycle + 1),
+                    start_value: Some(ramp_target_c),
+                    end_value: Some(ambient_c),
+                    value_unit: Some("°C".to_string()),
+                });
+            }
+        }
+        let exposure_s = segments.iter().map(|segment| segment.duration_s).sum();
+        if post_exposure_s > 0.0 {
+            segments.push(TimelineSegment::release(
+                post_exposure_s,
+                "Post-protocol cooling",
+            ));
+        }
+        (exposure_s, ProtocolTimeline { segments })
+    } else {
+        let exposure_s = contact.number_or("durationS", 10.0);
+        (
+            exposure_s,
+            ProtocolTimeline::exposure_and_cooling(exposure_s, post_exposure_s),
+        )
+    };
+    let device = if uses_thermal_timeline {
+        DeviceSpec::Ideal { setpoint_c }
+    } else {
+        device
+    };
+
     HeatCase {
         layers: layers_from_profile(profile),
+        exposure_source_w_per_m3: vec![0.0; profile.layers.len()],
+        protocol_timeline,
+        uses_thermal_timeline,
         blood: BloodProperties {
             temperature_c: profile.blood_c.value,
             density_kg_per_m3: profile.blood_density_kg_per_m3.value,
@@ -856,8 +1257,8 @@ pub(crate) fn build_case(
         contact_conductance: conductance,
         device,
         pre_exposure_s: contact.number_or("preExposureS", 0.0).max(0.0),
-        exposure_s: contact.number_or("durationS", 10.0),
-        post_exposure_s: contact.number_or("postExposureS", 0.0).max(0.0),
+        exposure_s,
+        post_exposure_s,
         ambient_c,
         damage,
         basal_depth_m: profile.basal_depth_m(),
@@ -1050,7 +1451,12 @@ fn simulate_heat_contact(
     contact: &SimulationContact,
     settings: &SolverSettings,
 ) -> Result<ContactSimulationResult, String> {
-    validate(contact)?;
+    let is_electrical = contact.stimulus_type == "electrical";
+    if is_electrical {
+        validate_electrical(contact)?;
+    } else {
+        validate(contact)?;
+    }
 
     let profile = skin_profile(contact.text("skinProfileId", DEFAULT_SKIN_PROFILE_ID))
         .unwrap_or_else(|| skin_profile(DEFAULT_SKIN_PROFILE_ID).unwrap());
@@ -1088,7 +1494,19 @@ fn simulate_heat_contact(
         override_conductance,
     );
 
-    let case = build_case(contact, profile, damage, network.total_w_per_m2_k);
+    let electrical_and_sources = if is_electrical {
+        Some(electrical_report(contact, profile)?)
+    } else {
+        None
+    };
+    let mut case = build_case(contact, profile, damage, network.total_w_per_m2_k);
+    if let Some((_, sources)) = &electrical_and_sources {
+        case.exposure_source_w_per_m3 = sources.clone();
+        case.device = DeviceSpec::Ideal {
+            setpoint_c: case.ambient_c,
+        };
+        case.contact_conductance = AMBIENT_COEFFICIENT_W_PER_M2_K;
+    }
 
     let dimensionality = check_dimensionality(
         contact_area_m2,
@@ -1123,7 +1541,7 @@ fn simulate_heat_contact(
         )
     };
 
-    let sensitivity = if settings.run_sensitivity {
+    let sensitivity = if settings.run_sensitivity && !is_electrical {
         run_sensitivity(&case, settings, profile)
     } else {
         Vec::new()
@@ -1146,13 +1564,17 @@ fn simulate_heat_contact(
         None
     };
 
-    let control_label: &'static str = match case.device {
+    let control_label: &'static str = if is_electrical {
+        "internal Joule heating"
+    } else {
+        match case.device {
         DeviceSpec::Ideal { .. } => "ideal (setpoint held)",
         DeviceSpec::Dynamic(DeviceModel {
             control: DeviceControl::Passive,
             ..
         }) => "passive thermal mass",
         DeviceSpec::Dynamic(_) => "regulated, power-limited",
+        }
     };
 
     let mut warnings = collect_warnings(
@@ -1184,17 +1606,48 @@ fn simulate_heat_contact(
             ),
         );
     }
+    if let Some((report, _)) = &electrical_and_sources {
+        warnings.insert(
+            0,
+            format!(
+                "Electrical screening uses a layered 1-D current path with an ideal remote return electrode; thermal spreading is {}. Conductivity confidence is not patient-specific.",
+                if dimension == SolverDimension::Axisymmetric {
+                    "axisymmetrically corrected"
+                } else {
+                    "depth-only"
+                }
+            ),
+        );
+        if report.nerve_activation.confidence == "extrapolated" {
+            warnings.push(
+                "Nerve activation uses human Aδ-fibre strength-duration data measured with an intraepidermal electrode; applying it to a surface electrode is extrapolated."
+                    .to_string(),
+            );
+        }
+    }
 
     let device_areal_heat_capacity = match case.device {
         DeviceSpec::Ideal { .. } => None,
         DeviceSpec::Dynamic(device) => Some(device.areal_heat_capacity_j_per_m2_k),
     };
+    let cem43_basal_minutes = cem43_minutes(&output.series);
+    // 240 CEM43 is a commonly reported hyperthermia tissue-effect reference,
+    // not a universal human-skin injury boundary. We expose disagreement
+    // rather than collapsing CEM43 and Arrhenius Ω into one verdict.
+    let cem43_reference_minutes = 240.0;
+    let omega_flags = output.omega_basal >= 1.0;
+    let cem43_flags = cem43_basal_minutes >= cem43_reference_minutes;
+    let thermal_dose_disagreement = omega_flags != cem43_flags;
 
     Ok(ContactSimulationResult {
         contact_point_id: contact.id.clone(),
         label: contact.label.clone(),
         inputs: ResolvedInputs {
-            device_setpoint_c: contact.number_or("temperatureC", 44.0),
+            device_setpoint_c: if is_electrical {
+                case.ambient_c
+            } else {
+                contact.number_or("temperatureC", 44.0)
+            },
             pre_exposure_s: case.pre_exposure_s,
             exposure_s: case.exposure_s,
             post_exposure_s: case.post_exposure_s,
@@ -1208,10 +1661,7 @@ fn simulate_heat_contact(
             device_areal_heat_capacity_j_per_m2_k: device_areal_heat_capacity,
             contact_conductance_w_per_m2_k: network.total_w_per_m2_k,
         },
-        protocol_timeline: ProtocolTimeline::exposure_and_cooling(
-            case.exposure_s,
-            case.post_exposure_s,
-        ),
+        protocol_timeline: case.protocol_timeline.clone(),
         skin_profile: profile,
         device_material: device_mat,
         interface_material: interface_mat,
@@ -1227,10 +1677,17 @@ fn simulate_heat_contact(
             dermal_base_depth_mm: case.dermal_base_depth_m * 1000.0,
             omega_basal: output.omega_basal,
             omega_dermal_base: output.omega_dermal_base,
+            cem43_basal_minutes,
+            cem43_reference_minutes,
+            thermal_dose_disagreement,
+            comfort_classification: comfort_classification(output.peak_surface_c),
             damage_depth_mm: output.damage_depth_m.map(|depth| depth * 1000.0),
             risk_classification: burn_classification(output.omega_basal, output.omega_dermal_base),
             peak_surface_flux_w_per_m2: output.peak_surface_flux,
-            total_energy_delivered_j: output.energy.surface_in_j_per_m2 * contact_area_m2,
+            total_energy_delivered_j: electrical_and_sources
+                .as_ref()
+                .map(|(report, _)| report.total_power_w * case.exposure_s)
+                .unwrap_or(output.energy.surface_in_j_per_m2 * contact_area_m2),
         },
         contact: network,
         dimensionality,
@@ -1279,6 +1736,7 @@ fn simulate_heat_contact(
         },
         warnings,
         radial_profile: output.radial_profile,
+        electrical: electrical_and_sources.map(|(report, _)| report),
     })
 }
 
@@ -1365,7 +1823,7 @@ pub fn run_heat_simulation(request: SimulationRequest) -> Result<SimulationRespo
     let mut unsupported_contacts = Vec::new();
 
     for contact in &request.contacts {
-        if contact.stimulus_type == "heat" {
+        if contact.stimulus_type == "heat" || contact.stimulus_type == "electrical" {
             contacts.push(simulate_heat_contact(contact, &request.settings)?);
         } else {
             unsupported_contacts.push(UnsupportedContact {
@@ -1373,7 +1831,7 @@ pub fn run_heat_simulation(request: SimulationRequest) -> Result<SimulationRespo
                 label: contact.label.clone(),
                 stimulus_type: contact.stimulus_type.clone(),
                 reason:
-                    "Only the heat model is implemented. Cold, electrical and pressure models are deliberately not shipped until the heat path is validated against published data.",
+                    "This solver handles heat and electrical-thermal contacts. Pressure uses the mechanical solver; cold is not implemented.",
             });
         }
     }
@@ -1385,14 +1843,16 @@ pub fn run_heat_simulation(request: SimulationRequest) -> Result<SimulationRespo
 
     Ok(SimulationResponse {
         model: ModelMetadata {
-            name: "1D layered Pennes bioheat with finite contact conductance and Arrhenius damage",
+            name: "Layered Pennes bioheat with thermal-contact and electrical Joule sources",
             version: MODEL_VERSION,
             scope:
-                "Heat contacts only. Sites are treated independently, tissue is layered in depth only, and the contact patch is assumed large relative to the heated depth.",
+                "Heat and electrical-thermal contacts. Sites are independent; electrical current follows a layered 1-D path with an ideal remote return, while thermal spreading can use 1-D or an axisymmetric disc correction.",
             governing_equations: &[
                 "ρc ∂T/∂t = ∂/∂x(k ∂T/∂x) + ω_b ρ_b c_b (T_a − T) + q_met",
                 "q_surface = h_contact (T_device − T_skin)",
+                "q_electrical = J²/σ during stimulation",
                 "Ω(t) = ∫ A exp(−E_a / R T) dt, integrated above the threshold temperature",
+                "I_threshold = I_rheobase (1 + chronaxie / pulse_duration)",
             ],
             numerics:
                 "Finite-volume discretisation on a graded mesh with harmonic-mean interface conductivity, advanced by Crank–Nicolson with a damped startup and solved with the Thomas algorithm.",
@@ -1401,11 +1861,13 @@ pub fn run_heat_simulation(request: SimulationRequest) -> Result<SimulationRespo
                 "Henriques FC (1947). Studies of thermal injury V. Arch Pathol 43:489-502.",
                 "Carslaw HS & Jaeger JC (1959). Conduction of Heat in Solids, 2nd ed. Oxford.",
                 "Patankar SV (1980). Numerical Heat Transfer and Fluid Flow. Hemisphere.",
+                "IT'IS Foundation Tissue Properties Database: low-frequency electrical conductivity.",
+                "Kodama et al. (2020). Electrical characterisation of Aδ-fibres based on human in-vivo electrostimulation threshold. Front Neurosci 14:588056.",
             ],
             disclaimer:
                 "Research prototype. Not clinically validated, not patient-specific, and not medical advice.",
             validation_status:
-                "Verified against analytic solutions and conservation checks. Experimental validation dashboard compares locked forearm protocols only; contact-site measured series are not yet available, so no experimental accuracy claim is made.",
+                "Thermal numerics are verified against analytic solutions and conservation checks. Electrical coupling is verified computationally but not yet experimentally validated; no electrical accuracy claim is made.",
         },
         manifest: RunManifest {
             model_version: MODEL_VERSION,
@@ -1638,7 +2100,7 @@ mod tests {
                 ("durationS", 30.0),
                 ("contactAreaMm2", 1.0),
             ],
-            &[],
+            &[("solverDimension", "1d")],
         );
         let large = heat_contact(
             &[
@@ -1646,7 +2108,7 @@ mod tests {
                 ("durationS", 30.0),
                 ("contactAreaMm2", 2500.0),
             ],
-            &[],
+            &[("solverDimension", "1d")],
         );
 
         let small = simulate_heat_contact(&small, &fast_settings()).unwrap();
@@ -1850,5 +2312,78 @@ mod tests {
         let contact = heat_contact(&[("temperatureC", 500.0), ("durationS", 10.0)], &[]);
         let error = simulate_heat_contact(&contact, &fast_settings()).unwrap_err();
         assert!(error.contains("outside the supported"));
+    }
+
+    #[test]
+    fn cem43_is_one_minute_for_one_minute_at_43c() {
+        let sample = |time_s| ThermalSample {
+            time_s,
+            surface_temperature_c: 43.0,
+            basal_temperature_c: 43.0,
+            dermal_base_temperature_c: 43.0,
+            device_temperature_c: 43.0,
+            damage_omega: 0.0,
+            surface_flux_w_per_m2: 0.0,
+            phase: "exposure",
+        };
+        assert!((cem43_minutes(&[sample(0.0), sample(60.0)]) - 1.0).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn repeated_thermal_timeline_is_executed_as_real_segments() {
+        let contact = heat_contact(
+            &[
+                ("temperatureC", 42.0),
+                ("timelineHoldS", 2.0),
+                ("timelineRampTargetC", 48.0),
+                ("timelineRampS", 2.0),
+                ("timelineReleaseS", 2.0),
+                ("timelineRepeats", 2.0),
+                ("contactAreaMm2", 400.0),
+            ],
+            &[("protocolMode", "timeline"), ("solverDimension", "1d")],
+        );
+        let result = simulate_heat_contact(&contact, &fast_settings()).expect("timeline result");
+        assert_eq!(result.protocol_timeline.segments.len(), 6);
+        assert!(result.series.iter().any(|sample| sample.phase == "ramp"));
+        assert!(result.series.iter().any(|sample| sample.phase == "release"));
+        assert!(result.summary.cem43_basal_minutes.is_finite());
+    }
+
+    #[test]
+    fn electrical_current_generates_joule_heat_and_activation_result() {
+        let contact = SimulationContact {
+            id: "cp-electrical".to_string(),
+            label: "Electrical contact".to_string(),
+            stimulus_type: "electrical".to_string(),
+            parameters: [
+                ("currentMa", 5.0),
+                ("pulseDurationUs", 250.0),
+                ("frequencyHz", 50.0),
+                ("electricalDutyCycle", 1.25),
+                ("durationS", 10.0),
+                ("postExposureS", 5.0),
+                ("contactAreaMm2", 400.0),
+                ("interfaceImpedanceOhm", 500.0),
+            ]
+            .into_iter()
+            .map(|(key, value)| (key.to_string(), value))
+            .collect(),
+            options: [
+                ("waveformType", "pulsed"),
+                ("electricalDriveMode", "current"),
+                ("skinProfileId", "volar-forearm"),
+                ("solverDimension", "1d"),
+            ]
+            .into_iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect(),
+        };
+        let result = simulate_heat_contact(&contact, &fast_settings()).expect("electrical result");
+        let electrical = result.electrical.expect("electrical report");
+        assert!(electrical.total_power_w > 0.0);
+        assert!(electrical.layers.iter().all(|layer| layer.power_density_w_per_m3 > 0.0));
+        assert!(electrical.nerve_activation.activation_margin > 1.0);
+        assert!(result.summary.peak_basal_temperature_c.is_finite());
     }
 }

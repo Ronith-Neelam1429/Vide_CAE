@@ -1255,6 +1255,129 @@
   gap: 14px;
 }
 
+.contact-comparison {
+  padding: 10px;
+  border: 1px solid var(--vide-border-subtle);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.contact-comparison__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.contact-comparison__header strong {
+  color: var(--vide-text);
+  font-size: 12px;
+}
+
+.contact-comparison__header span {
+  color: var(--vide-text-dim);
+  font-size: 10px;
+}
+
+.contact-comparison__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 6px;
+}
+
+.contact-comparison__item {
+  display: grid;
+  grid-template-columns: auto minmax(60px, 1fr) auto;
+  gap: 3px 8px;
+  padding: 8px;
+  border: 1px solid var(--vide-border);
+  border-left-width: 3px;
+  border-radius: 5px;
+  background: #202020;
+  color: var(--vide-text-muted);
+  text-align: left;
+}
+
+.contact-comparison__item.is-none,
+.contact-comparison__item.is-low {
+  border-left-color: #3fb950;
+}
+
+.contact-comparison__item.is-moderate {
+  border-left-color: #e3b341;
+}
+
+.contact-comparison__item.is-high {
+  border-left-color: #f08c69;
+}
+
+.contact-comparison__item.is-exceeded {
+  border-left-color: #e5554b;
+}
+
+.contact-comparison__item.is-selected {
+  border-color: rgba(6, 150, 215, 0.65);
+  background: rgba(6, 150, 215, 0.1);
+}
+
+.contact-comparison__rank {
+  grid-row: span 2;
+  color: var(--vide-text-dim);
+  font-family: var(--vide-font-mono);
+}
+
+.contact-comparison__name {
+  color: var(--vide-text);
+  font-weight: 600;
+}
+
+.contact-comparison__item code {
+  color: var(--vide-text-secondary);
+  font-family: var(--vide-font-mono);
+  font-size: 10px;
+}
+
+.parameter-sweep__controls {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) repeat(3, minmax(76px, 0.45fr)) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.parameter-sweep__controls label {
+  display: grid;
+  gap: 4px;
+  color: var(--vide-text-dim);
+  font-size: 9px;
+}
+
+.parameter-sweep__controls select,
+.parameter-sweep__controls input {
+  min-width: 0;
+  height: 28px;
+  padding: 0 7px;
+  border: 1px solid var(--vide-border);
+  border-radius: 4px;
+  background: #202020;
+  color: var(--vide-text);
+  font: 10px var(--vide-font-mono);
+}
+
+.parameter-sweep__controls button {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid rgba(6, 150, 215, 0.6);
+  border-radius: 4px;
+  background: rgba(6, 150, 215, 0.14);
+  color: #8ed8f2;
+  font-size: 10px;
+}
+
+.parameter-sweep__controls button:disabled {
+  opacity: 0.45;
+}
+
 /* Tier 1 — Verdict */
 .verdict-card {
   padding: 16px 18px;
@@ -1317,6 +1440,13 @@
   border: 1px solid transparent;
 }
 
+.verdict-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .verdict-card__badge.is-none,
 .verdict-card__badge.is-low {
   border-color: rgba(63, 185, 80, 0.45);
@@ -1366,6 +1496,17 @@
   font-size: 13px;
   line-height: 1.45;
   max-width: 72ch;
+}
+
+.verdict-card__caveat {
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 1px solid rgba(227, 179, 65, 0.38);
+  border-radius: 6px;
+  background: rgba(227, 179, 65, 0.09);
+  color: #e7c58f;
+  font-size: 10px;
+  line-height: 1.45;
 }
 
 .verdict-card__hero {
@@ -1544,6 +1685,47 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.timeline-editor {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid rgba(6, 150, 215, 0.3);
+  border-radius: 6px;
+  background: rgba(6, 150, 215, 0.06);
+}
+
+.timeline-editor__wave {
+  display: flex;
+  min-height: 34px;
+  gap: 2px;
+}
+
+.timeline-editor__wave span {
+  display: grid;
+  place-items: center;
+  min-width: 54px;
+  padding: 4px;
+  border-radius: 3px;
+  background: rgba(240, 140, 105, 0.24);
+  color: #f2b09a;
+  font-size: 9px;
+  text-align: center;
+}
+
+.timeline-editor__wave span.is-ramp {
+  background: linear-gradient(90deg, rgba(240, 140, 105, 0.2), rgba(229, 85, 75, 0.35));
+}
+
+.timeline-editor__wave span.is-release {
+  background: rgba(32, 184, 237, 0.16);
+  color: #8ed8f2;
+}
+
+.timeline-editor small {
+  color: var(--vide-text-dim);
+  font-size: 9px;
 }
 
 .stimulus-form__field--preset .stimulus-form__select {

@@ -25,6 +25,10 @@ pub struct TimelineSegment {
     /// Fraction of a cycle spent under the active load, when applicable.
     pub duty_cycle: Option<f64>,
     pub label: String,
+    /// Optional modality value (°C for thermal protocols).
+    pub start_value: Option<f64>,
+    pub end_value: Option<f64>,
+    pub value_unit: Option<String>,
 }
 
 impl TimelineSegment {
@@ -35,6 +39,9 @@ impl TimelineSegment {
             repetitions: 1,
             duty_cycle: None,
             label: label.into(),
+            start_value: None,
+            end_value: None,
+            value_unit: None,
         }
     }
 
@@ -45,6 +52,9 @@ impl TimelineSegment {
             repetitions: 1,
             duty_cycle: None,
             label: label.into(),
+            start_value: None,
+            end_value: None,
+            value_unit: None,
         }
     }
 }

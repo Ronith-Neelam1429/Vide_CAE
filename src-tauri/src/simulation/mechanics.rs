@@ -232,6 +232,7 @@ pub struct MechInputs {
     pub hold_s: f64,
     pub recovery_s: f64,
     pub loading_mode: &'static str,
+    pub waveform_shape: String,
     pub cycles: f64,
     pub frequency_hz: f64,
     pub duty_cycle: f64,
@@ -287,6 +288,30 @@ pub struct FatigueResult {
     pub permanent_shape_change_um: f64,
     pub cycle_series: Vec<CycleSample>,
     pub verdict: &'static str,
+    pub confidence: &'static str,
+    pub basis: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PressureDurationPoint {
+    pub duration_minutes: f64,
+    pub threshold_pressure_kpa: f64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PressureInjuryRisk {
+    pub applied_pressure_kpa: f64,
+    pub duration_minutes: f64,
+    pub threshold_pressure_kpa: f64,
+    pub threshold_ratio: f64,
+    pub classification: &'static str,
+    pub confidence: &'static str,
+    pub model: &'static str,
+    pub citation: &'static str,
+    pub caveat: &'static str,
+    pub curve: Vec<PressureDurationPoint>,
 }
 
 #[derive(Debug, Serialize)]
@@ -312,6 +337,7 @@ pub struct MechContactResult {
     pub summary: MechSummary,
     pub indentation_series: Vec<IndentSample>,
     pub fatigue: Option<FatigueResult>,
+    pub pressure_injury: Option<PressureInjuryRisk>,
     pub warnings: Vec<String>,
 }
 
@@ -545,12 +571,12 @@ fn build_cyclic_indentation_series(
     duty_cycle: f64,
     minimum_pressure_fraction: f64,
     recovery_s: f64,
+    waveform_shape: &str,
 ) -> Vec<IndentSample> {
     let period_s = 1.0 / frequency_hz.max(0.01);
     let load_s = (period_s * duty_cycle.clamp(0.01, 0.99)).max(1.0e-5);
     let unload_s = (period_s - load_s).max(1.0e-5);
     let applied_pressure_kpa = stress_pa / 1000.0;
-    let low_pressure_kpa = applied_pressure_kpa * minimum_pressure_fraction;
     let mut series = Vec::new();
 
     for cycle in representative_cycles(cycles) {
@@ -565,17 +591,6 @@ fn build_cyclic_indentation_series(
             completed_before,
             false,
         );
-        series.push(IndentSample {
-            time_s: completed_before * period_s,
-            indentation_um: low,
-            phase: "cyclic-recovery",
-            cycle: Some(completed_before),
-            applied_pressure_kpa: low_pressure_kpa,
-        });
-
-        if cycle >= cycles {
-            continue;
-        }
         let high = cyclic_indentation_at(
             profile,
             stress_pa,
@@ -586,13 +601,43 @@ fn build_cyclic_indentation_series(
             completed_before,
             true,
         );
-        series.push(IndentSample {
-            time_s: completed_before * period_s + load_s,
-            indentation_um: high,
-            phase: "cyclic-loading",
-            cycle: Some(completed_before + 1.0),
-            applied_pressure_kpa,
-        });
+        let phases: &[(f64, f64, &'static str)] = match waveform_shape {
+            "sinusoidal" => &[
+                (0.0, 0.0, "cyclic-recovery"),
+                (0.25, 0.5, "cyclic-loading"),
+                (0.5, 1.0, "cyclic-loading"),
+                (0.75, 0.5, "cyclic-release"),
+                (1.0, 0.0, "cyclic-recovery"),
+            ],
+            "trapezoidal" => &[
+                (0.0, 0.0, "cyclic-recovery"),
+                (0.2, 1.0, "cyclic-ramp"),
+                (0.6, 1.0, "cyclic-loading"),
+                (0.8, 0.0, "cyclic-release"),
+                (1.0, 0.0, "cyclic-recovery"),
+            ],
+            _ => &[
+                (0.0, 0.0, "cyclic-recovery"),
+                (0.001, 1.0, "cyclic-loading"),
+                (0.5, 1.0, "cyclic-loading"),
+                (0.501, 0.0, "cyclic-release"),
+                (1.0, 0.0, "cyclic-recovery"),
+            ],
+        };
+        for (phase_fraction, amplitude, phase) in phases {
+            if cycle >= cycles && *phase_fraction > 0.0 {
+                continue;
+            }
+            let pressure_fraction =
+                minimum_pressure_fraction + (1.0 - minimum_pressure_fraction) * amplitude;
+            series.push(IndentSample {
+                time_s: (completed_before + phase_fraction) * period_s,
+                indentation_um: low + (high - low) * amplitude,
+                phase,
+                cycle: Some(completed_before + phase_fraction),
+                applied_pressure_kpa: applied_pressure_kpa * pressure_fraction,
+            });
+        }
     }
 
     // Allow a final observed recovery after the last repetition, using the
@@ -627,6 +672,56 @@ fn build_cyclic_indentation_series(
     series
 }
 
+/// Contemporary sigmoid pressure-time threshold used as a transparent
+/// Reswick-Rogers-style screening curve. The coefficients are from the
+/// Linder-Ganz/Gefen rat-muscle cell-death model, so this is deliberately
+/// labelled extrapolated rather than presented as a validated human limit.
+pub(crate) fn pressure_time_threshold_kpa(duration_minutes: f64) -> f64 {
+    const P_MAX_KPA: f64 = 31.0;
+    const P_MIN_KPA: f64 = 8.0;
+    const LAMBDA_PER_MIN: f64 = 0.15;
+    const T0_MIN: f64 = 95.0;
+    P_MIN_KPA
+        + (P_MAX_KPA - P_MIN_KPA)
+            / (1.0 + (LAMBDA_PER_MIN * (duration_minutes.max(0.0) - T0_MIN)).exp())
+}
+
+fn pressure_injury_screen(applied_pressure_kpa: f64, hold_s: f64) -> PressureInjuryRisk {
+    let duration_minutes = hold_s / 60.0;
+    let threshold_pressure_kpa = pressure_time_threshold_kpa(duration_minutes);
+    let threshold_ratio = applied_pressure_kpa / threshold_pressure_kpa.max(1.0e-9);
+    let classification = if threshold_ratio >= 1.0 {
+        "Exceeds threshold"
+    } else if threshold_ratio >= 0.8 {
+        "Approaching threshold"
+    } else {
+        "Below threshold"
+    };
+    let curve = [
+        0.0, 5.0, 15.0, 30.0, 60.0, 90.0, 120.0, 180.0, 240.0, 360.0, 480.0,
+        720.0, 1440.0,
+    ]
+        .into_iter()
+        .map(|duration_minutes| PressureDurationPoint {
+            duration_minutes,
+            threshold_pressure_kpa: pressure_time_threshold_kpa(duration_minutes),
+        })
+        .collect();
+
+    PressureInjuryRisk {
+        applied_pressure_kpa,
+        duration_minutes,
+        threshold_pressure_kpa,
+        threshold_ratio,
+        classification,
+        confidence: "extrapolated",
+        model: "Sigmoid pressure-time cell-death threshold",
+        citation: "Linder-Ganz E, Engelberg S, Scheinowitz M, Gefen A. J Biomech. 2006;39(14):2725-2732.",
+        caveat: "Screening only: coefficients are from compressed rat skeletal muscle, not a validated human skin pressure-injury limit. Reswick-Rogers established the inverse pressure-duration concept but not a robust universal equation.",
+        curve,
+    }
+}
+
 fn simulate_mechanics_contact(
     contact: &SimulationContact,
     profile: &'static SkinProfile,
@@ -637,6 +732,7 @@ fn simulate_mechanics_contact(
     let recovery_s = contact.number_or("recoveryS", 30.0).max(0.0);
     let loading_mode_raw = contact.text("loadingMode", "static");
     let is_cyclic = loading_mode_raw == "cyclic";
+    let waveform_shape = contact.text("waveformShape", "square").to_string();
     let cycles = contact.number_or("cycles", 100000.0).max(1.0);
     let frequency_hz = contact.number_or("frequencyHz", 1.0).max(0.01);
     let duty_cycle = (contact.number_or("dutyCycle", 50.0) / 100.0).clamp(0.01, 0.99);
@@ -738,6 +834,7 @@ fn simulate_mechanics_contact(
             duty_cycle,
             minimum_pressure_fraction,
             recovery_s,
+            waveform_shape.as_str(),
         )
     } else {
         build_indentation_series(profile, stress_pa, a_m, hold_s, recovery_s)
@@ -758,6 +855,11 @@ fn simulate_mechanics_contact(
     } else {
         None
     };
+    let pressure_injury = if is_cyclic {
+        None
+    } else {
+        Some(pressure_injury_screen(applied_pressure_kpa, hold_s))
+    };
 
     let any_yield = layers.iter().any(|l| l.yielded);
     let fatigue_fails = fatigue
@@ -777,7 +879,16 @@ fn simulate_mechanics_contact(
 
     if is_cyclic && fatigue.is_none() {
         warnings.push(
-            "No load-bearing bone layer in this tissue; cyclic fatigue was not evaluated."
+            "No fatigue-relevant structural layer was found; cyclic fatigue was not evaluated."
+                .to_string(),
+        );
+    } else if fatigue
+        .as_ref()
+        .map(|result| result.confidence == "extrapolated")
+        .unwrap_or(false)
+    {
+        warnings.push(
+            "Soft-tissue cyclic fatigue life is an extrapolated strain-life screen, not a validated human failure prediction."
                 .to_string(),
         );
     }
@@ -809,6 +920,7 @@ fn simulate_mechanics_contact(
             hold_s,
             recovery_s,
             loading_mode: if is_cyclic { "cyclic" } else { "static" },
+            waveform_shape,
             cycles,
             frequency_hz,
             duty_cycle,
@@ -823,6 +935,7 @@ fn simulate_mechanics_contact(
         summary,
         indentation_series,
         fatigue,
+        pressure_injury,
         warnings,
     })
 }
@@ -861,29 +974,79 @@ fn compute_fatigue(
 ) -> Option<FatigueResult> {
     // Pick the stiffest bone-like layer as the load-bearing element, using the
     // contact stress that actually reaches it (decayed with depth).
-    let mut best: Option<(&str, MechProps, f64, f64)> = None;
+    let mut best_bone: Option<(&str, MechProps, f64, f64)> = None;
+    let mut best_soft: Option<(&str, MechProps, f64, f64, f64)> = None;
     let mut depth = 0.0;
     for layer in profile.layers {
         let class = classify(layer.name);
         let props = props_for(class);
         let mid = depth + layer.thickness_m.value * 0.5;
         if props.bone_like {
-            let better = match &best {
+            let better = match &best_bone {
                 Some((_, p, _, _)) => props.youngs_modulus_pa > p.youngs_modulus_pa,
                 None => true,
             };
             if better {
-                best = Some((layer.name, props, layer.thickness_m.value, mid));
+                best_bone = Some((layer.name, props, layer.thickness_m.value, mid));
+            }
+        } else if matches!(
+            class,
+            MechClass::Skin | MechClass::Fat | MechClass::Muscle | MechClass::Cartilage
+        ) {
+            let local_stress = stress_pa * axial_decay(mid, a_m);
+            let normalized_strain =
+                (local_stress / props.youngs_modulus_pa) / props.yield_strain.max(1.0e-9);
+            let better = best_soft
+                .as_ref()
+                .map(|(_, _, _, _, score)| normalized_strain > *score)
+                .unwrap_or(true);
+            if better {
+                best_soft = Some((
+                    layer.name,
+                    props,
+                    layer.thickness_m.value,
+                    mid,
+                    normalized_strain,
+                ));
             }
         }
         depth += layer.thickness_m.value;
     }
 
-    let (name, props, thickness_m, mid_depth) = best?;
-    let bone_stress = stress_pa * axial_decay(mid_depth, a_m);
-    let nf = cycles_to_failure(bone_stress, &props);
+    let (name, props, thickness_m, mid_depth, confidence, basis) =
+        if let Some((name, props, thickness_m, mid_depth)) = best_bone {
+            (
+                name,
+                props,
+                thickness_m,
+                mid_depth,
+                "established",
+                "Cortical/trabecular bone Basquin S-N relation with Palmgren-Miner linear damage.",
+            )
+        } else {
+            let (name, props, thickness_m, mid_depth, _) = best_soft?;
+            (
+                name,
+                props,
+                thickness_m,
+                mid_depth,
+                "extrapolated",
+                "Generic soft-tissue strain-life screening curve; no site-specific human cyclic-fatigue dataset is available. Do not interpret Nf as a validated failure life.",
+            )
+        };
+    let layer_stress = stress_pa * axial_decay(mid_depth, a_m);
+    let strain_amplitude = layer_stress / props.youngs_modulus_pa;
+    let nf = if props.bone_like {
+        cycles_to_failure(layer_stress, &props)
+    } else {
+        // Conservative Basquin-like strain-life screen anchored to half the
+        // layer yield strain at one cycle. It is intentionally extrapolated.
+        (0.5 * props.yield_strain / strain_amplitude.max(1.0e-12))
+            .max(1.0)
+            .powf(6.0)
+            .clamp(1.0, 1.0e12)
+    };
     let damage = (cycles / nf).min(1.0);
-    let strain_amplitude = bone_stress / props.youngs_modulus_pa;
     // Pattin/Carter: modulus degrades progressively with damage.
     let residual_modulus_ratio = (1.0 - 0.35 * damage).max(0.0);
     // Permanent (creep-fatigue) strain grows toward the yield strain at failure.
@@ -916,7 +1079,7 @@ fn compute_fatigue(
 
     Some(FatigueResult {
         layer: name,
-        stress_amplitude_mpa: bone_stress / 1.0e6,
+        stress_amplitude_mpa: layer_stress / 1.0e6,
         strain_amplitude,
         cycles_to_failure: nf,
         cycles_applied: cycles,
@@ -926,6 +1089,8 @@ fn compute_fatigue(
         permanent_shape_change_um,
         cycle_series,
         verdict,
+        confidence,
+        basis,
     })
 }
 
@@ -933,18 +1098,20 @@ fn model_metadata() -> MechModelMetadata {
     MechModelMetadata {
         name: "Vide 1D layered mechanical model",
         version: MECH_MODEL_VERSION,
-        scope: "Normal-contact compression of a layered tissue column: viscoelastic creep, recovery, permanent set and cortical-bone cyclic fatigue.",
+        scope: "Normal-contact compression of a layered tissue column: viscoelastic creep, recovery, permanent set, pressure-time screening, bone fatigue and explicitly extrapolated soft-tissue cyclic fatigue.",
         governing_equations: vec![
             "σ constant through depth (1D series equilibrium)",
             "ε(t) = (σ/E)(1 − e^{−t/τ})   (Kelvin–Voigt creep)",
             "Nf = (σf'/σa)^m   (Basquin S–N, cortical bone)",
             "D = N/Nf   (Palmgren–Miner linear damage)",
+            "P_threshold(t) = Pmin + (Pmax − Pmin)/(1 + exp(λ(t − t0)))",
         ],
         citations: vec![
             "Agache PG et al. (1980). Mechanical properties and Young's modulus of human skin in vivo. Arch Dermatol Res 269:221-232.",
             "Reilly DT, Burstein AH (1975). The elastic and ultimate properties of compact bone tissue. J Biomech 8(6):393-405.",
             "Carter DR, Caler WE (1985). A cumulative damage model for bone fracture. J Orthop Res 3(1):84-90.",
             "Pattin CA, Caler WE, Carter DR (1996). Cyclic mechanical property degradation during fatigue loading of cortical bone. J Biomech 29(1):69-79.",
+            "Linder-Ganz E et al. (2006). Pressure-time cell death threshold for albino rat skeletal muscles. J Biomech 39(14):2725-2732.",
         ],
         disclaimer:
             "Research screening model. 1D, small-strain, representative literature constants; not a validated FEA substitute or clinical prediction.",
@@ -1156,6 +1323,29 @@ mod tests {
         assert!(f.damage_fraction >= 1.0 - 1e-9);
         assert!(f.permanent_shape_change_um > 0.0);
         assert!(r.summary.verdict.contains("Fatigue"));
+    }
+
+    #[test]
+    fn pressure_time_threshold_declines_with_duration() {
+        assert!(pressure_time_threshold_kpa(30.0) > pressure_time_threshold_kpa(240.0));
+    }
+
+    #[test]
+    fn soft_tissue_cyclic_life_is_explicitly_extrapolated() {
+        let result = simulate_mechanics_contact(
+            &pressure_contact(
+                &[("appliedPressureKpa", 20.0), ("cycles", 1000.0)],
+                &[("loadingMode", "cyclic"), ("waveformShape", "sinusoidal")],
+            ),
+            profile("volar-forearm"),
+        )
+        .unwrap();
+        let fatigue = result.fatigue.expect("soft-tissue fatigue screen");
+        assert_eq!(fatigue.confidence, "extrapolated");
+        assert!(result
+            .indentation_series
+            .iter()
+            .any(|sample| sample.phase == "cyclic-release"));
     }
 
     #[test]

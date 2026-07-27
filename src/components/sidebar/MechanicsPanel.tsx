@@ -6,6 +6,7 @@ import {
   Line,
   LineChart,
   ReferenceArea,
+  ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -74,17 +75,38 @@ function MechVerdictCard({ contact }: { contact: MechContactResult }) {
           <strong>{contact.label}</strong>
           <span>{contact.skinProfile.label}</span>
         </div>
-        <div className={`verdict-card__badge is-${tone}`}>
-          <span className="verdict-card__badge-label">Mechanical outcome</span>
-          <span className="verdict-card__badge-value">{level}</span>
-          {fatigue ? (
-            <span className="verdict-card__badge-threshold">
-              Fatigue D = {(fatigue.damageFraction * 100).toFixed(0)}% of 100%
-            </span>
-          ) : (
-            <span className="verdict-card__badge-threshold">
-              Yield = permanent tissue set
-            </span>
+        <div className="verdict-card__badges">
+          <div className={`verdict-card__badge is-${tone}`}>
+            <span className="verdict-card__badge-label">Mechanical outcome</span>
+            <span className="verdict-card__badge-value">{level}</span>
+            {fatigue ? (
+              <span className="verdict-card__badge-threshold">
+                Fatigue D = {(fatigue.damageFraction * 100).toFixed(0)}% of 100%
+              </span>
+            ) : (
+              <span className="verdict-card__badge-threshold">
+                Yield = permanent tissue set
+              </span>
+            )}
+          </div>
+          {contact.pressureInjury && (
+            <div
+              className={`verdict-card__badge is-${
+                contact.pressureInjury.classification === "Exceeds threshold"
+                  ? "exceeded"
+                  : contact.pressureInjury.classification === "Approaching threshold"
+                    ? "moderate"
+                    : "none"
+              }`}
+            >
+              <span className="verdict-card__badge-label">Pressure-time screen</span>
+              <span className="verdict-card__badge-value">
+                {contact.pressureInjury.classification}
+              </span>
+              <span className="verdict-card__badge-threshold">
+                extrapolated · {contact.pressureInjury.thresholdRatio.toFixed(2)}× threshold
+              </span>
+            </div>
           )}
         </div>
       </div>
@@ -123,6 +145,68 @@ function MechVerdictCard({ contact }: { contact: MechContactResult }) {
         </div>
       </div>
     </section>
+  );
+}
+
+function PressureDurationChart({ contact }: { contact: MechContactResult }) {
+  const risk = contact.pressureInjury;
+  if (!risk) return null;
+  const yMax = Math.max(
+    risk.appliedPressureKpa,
+    ...risk.curve.map((point) => point.thresholdPressureKpa),
+  );
+
+  return (
+    <div className="results-chart" aria-label="Pressure-duration injury screening curve">
+      <ResponsiveContainer width="100%" height={260}>
+        <LineChart
+          data={risk.curve}
+          margin={{ top: 12, right: 14, bottom: 2, left: -4 }}
+        >
+          <CartesianGrid stroke="#3d3d3d" strokeDasharray="3 3" />
+          <XAxis
+            dataKey="durationMinutes"
+            type="number"
+            unit=" min"
+            domain={[0, "dataMax"]}
+            {...AXIS}
+          />
+          <YAxis
+            unit=" kPa"
+            width={58}
+            domain={[0, Math.ceil(yMax * 1.15)]}
+            {...AXIS}
+          />
+          <Tooltip content={<ChartTooltip unit="min" />} />
+          <Line
+            name="Screening threshold"
+            type="monotone"
+            dataKey="thresholdPressureKpa"
+            stroke="#e3b341"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+          />
+          <ReferenceDot
+            x={risk.durationMinutes}
+            y={risk.appliedPressureKpa}
+            r={6}
+            fill="#38bdf8"
+            stroke="#b8e7fb"
+            label={{
+              value: "This experiment",
+              fill: "#b8e7fb",
+              fontSize: 10,
+              position: "top",
+            }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+      <p className="results-chart__caption">
+        Pressure-time screening point versus a contemporary sigmoid threshold.
+        Extrapolated from rat skeletal muscle; not a validated human clinical limit.
+      </p>
+    </div>
   );
 }
 
@@ -456,7 +540,10 @@ function MechPhysicsDetail({ contact }: { contact: MechContactResult }) {
                   ({formatCycles(fatigue.cyclesApplied)} / {formatCycles(fatigue.cyclesToFailure)} cycles)
                 </span>
               </div>
-              <p className="result-note is-dim">{fatigue.verdict}</p>
+              <p className="result-note is-dim">
+                {fatigue.verdict} · {fatigue.confidence}
+              </p>
+              <p className="result-note is-dim">{fatigue.basis}</p>
             </div>
           )}
 
@@ -475,7 +562,9 @@ function MechPhysicsDetail({ contact }: { contact: MechContactResult }) {
 
 function ContactMechResult({ contact }: { contact: MechContactResult }) {
   const isCyclic = contact.inputs.loadingMode === "cyclic";
-  const [chart, setChart] = useState<"indentation" | "load" | "strain" | "fatigue">(
+  const [chart, setChart] = useState<
+    "indentation" | "load" | "strain" | "pressure-risk" | "fatigue"
+  >(
     "indentation",
   );
 
@@ -483,6 +572,9 @@ function ContactMechResult({ contact }: { contact: MechContactResult }) {
     { id: "indentation" as const, label: "Indentation over time" },
     { id: "load" as const, label: "Contact load" },
     { id: "strain" as const, label: "Strain by layer" },
+    ...(!isCyclic && contact.pressureInjury
+      ? [{ id: "pressure-risk" as const, label: "Pressure-time risk" }]
+      : []),
     ...(isCyclic && contact.fatigue
       ? [{ id: "fatigue" as const, label: "Fatigue accumulation" }]
       : []),
@@ -508,6 +600,7 @@ function ContactMechResult({ contact }: { contact: MechContactResult }) {
         {chart === "indentation" && <IndentationChart contact={contact} />}
         {chart === "load" && <LoadChart contact={contact} />}
         {chart === "strain" && <LayerStrainChart contact={contact} />}
+        {chart === "pressure-risk" && <PressureDurationChart contact={contact} />}
         {chart === "fatigue" && contact.fatigue && <FatigueChart contact={contact} />}
       </section>
 

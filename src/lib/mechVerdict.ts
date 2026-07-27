@@ -2,8 +2,9 @@ import type { FatigueResult, MechContactResult, MechSummary } from "./mechanics"
 
 export type MechRiskLevel =
   | "Reversible"
-  | "Elevated"
-  | "Permanent set"
+  | "Damage accumulating"
+  | "Permanent set risk"
+  | "Yield exceeded"
   | "Fatigue critical";
 
 export type MechRiskTone = "none" | "moderate" | "high" | "exceeded";
@@ -22,13 +23,16 @@ export function mechRiskFromSummary(
     summary.verdict.toLowerCase().includes("permanent") ||
     summary.verdict.toLowerCase().includes("yield")
   ) {
-    return { level: "Permanent set", tone: "high" };
+    return { level: "Yield exceeded", tone: "high" };
+  }
+  if (fatigue && fatigue.damageFraction > 0.01) {
+    return { level: "Damage accumulating", tone: "moderate" };
   }
   if (
     summary.verdict.toLowerCase().includes("large") ||
     summary.deformationPercent >= 3
   ) {
-    return { level: "Elevated", tone: "moderate" };
+    return { level: "Permanent set risk", tone: "moderate" };
   }
   return { level: "Reversible", tone: "none" };
 }

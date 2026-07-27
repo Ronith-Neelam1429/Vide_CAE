@@ -9,7 +9,11 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { ProofLabCaseResult, WindowComparison } from "../../lib/simulation";
+import type {
+  CrossValidationCase,
+  ProofLabCaseResult,
+  WindowComparison,
+} from "../../lib/simulation";
 import { useExperimentStore } from "../../store/experimentStore";
 import { ModelDiagnostics } from "../results/ModelDiagnostics";
 
@@ -223,6 +227,51 @@ function CasePanel({ entry }: { entry: ProofLabCaseResult }) {
   );
 }
 
+function CrossValidationPanel({ entry }: { entry: CrossValidationCase }) {
+  return (
+    <article className="validation-card proof-lab__case">
+      <header className="validation-card__header">
+        <div>
+          <h3>{entry.title}</h3>
+          <p className="validation-card__meta">{entry.citation}</p>
+        </div>
+        <span className="validation-pill is-warn">{entry.status}</span>
+      </header>
+      <div className="proof-lab__banner">
+        <strong>{entry.modality === "mechanical" ? "Mechanical" : "Electrical"} transfer check.</strong>{" "}
+        Production equations generated predictions before the independent reference
+        curve was evaluated. A high error is a visible failed validation, not a hidden
+        calibration target.
+      </div>
+      <div className="validation-chart">
+        <ResponsiveContainer width="100%" height={240}>
+          <LineChart data={entry.points} margin={{ top: 12, right: 16, bottom: 4, left: 0 }}>
+            <CartesianGrid stroke="#3d3d3d" strokeDasharray="3 3" />
+            <XAxis dataKey="x" type="number" unit={` ${entry.xUnit}`} tick={{ fill: "#909090", fontSize: 10 }} tickLine={false} axisLine={{ stroke: "#4a4a4a" }} />
+            <YAxis unit={` ${entry.metricUnit}`} width={64} tick={{ fill: "#909090", fontSize: 10 }} tickLine={false} axisLine={{ stroke: "#4a4a4a" }} domain={["auto", "auto"]} />
+            <Tooltip contentStyle={{ background: "#2a2a2a", border: "1px solid #4a4a4a", fontSize: 12 }} />
+            <Legend />
+            <Line name="Independent reference" type="monotone" dataKey="measured" stroke="#f08c69" strokeWidth={2} dot isAnimationActive={false} />
+            <Line name="Vide prediction" type="monotone" dataKey="predicted" stroke="#20b8ed" strokeWidth={2} dot isAnimationActive={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <table className="proof-lab__metrics">
+        <thead><tr><th>Metric</th><th>Value</th><th>Unit</th></tr></thead>
+        <tbody>
+          <tr><td>Samples</td><td>{entry.points.length}</td><td>—</td></tr>
+          <tr><td>RMSE</td><td>{entry.rmse.toFixed(3)}</td><td>{entry.metricUnit}</td></tr>
+          <tr><td>MAE</td><td>{entry.mae.toFixed(3)}</td><td>{entry.metricUnit}</td></tr>
+          <tr><td>Signed bias</td><td>{entry.signedBias.toFixed(3)}</td><td>{entry.metricUnit}</td></tr>
+        </tbody>
+      </table>
+      <ul className="result-warnings">
+        {entry.caveats.map((caveat) => <li key={caveat}>{caveat}</li>)}
+      </ul>
+    </article>
+  );
+}
+
 /** Embedded panel for the bottom workspace (no modal chrome). */
 export function ProofLabPanel() {
   const status = useExperimentStore((s) => s.proofLabStatus);
@@ -300,6 +349,9 @@ export function ProofLabPanel() {
           <p className="validation-disclosure">{report.disclosure}</p>
           {report.cases.map((entry) => (
             <CasePanel key={entry.caseId} entry={entry} />
+          ))}
+          {report.crossValidationCases.map((entry) => (
+            <CrossValidationPanel key={entry.caseId} entry={entry} />
           ))}
         </>
       )}

@@ -1,8 +1,8 @@
 //! Axisymmetric (r–z) contact heating via 1-D Pennes solve plus analytic radial
 //! correction for finite disc contacts.
 
-use super::contact::{axial_spreading_factor, contact_radius_m};
-use super::model::{SkinProfile};
+use super::contact::axial_spreading_factor;
+use super::model::SkinProfile;
 use super::solver::LayerMaterial;
 use super::{
     solve_case, CaseOutput, DepthSample, HeatCase, RadialSample, SolverSettings, ThermalSample,
@@ -168,10 +168,9 @@ pub fn solve_axisymmetric_case(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::simulation::contact::contact_radius_m;
     use crate::simulation::model::{damage_model, skin_profile, DEFAULT_DAMAGE_MODEL_ID, DEFAULT_SKIN_PROFILE_ID};
     use crate::simulation::{build_case, SimulationContact};
-    use std::collections::HashMap;
-
     fn heat_contact(params: &[(&str, f64)], options: &[(&str, &str)]) -> SimulationContact {
         SimulationContact {
             id: "cp".into(),

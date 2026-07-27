@@ -20,6 +20,7 @@ export type TissueLayer = {
   densityKgPerM3: Property;
   specificHeatJPerKgK: Property;
   conductivityWPerMK: Property;
+  electricalConductivitySPerM: Property;
   perfusionPerS: Property;
   metabolicWPerM3: Property;
 };
@@ -157,6 +158,10 @@ export type ResultSummary = {
   dermalBaseDepthMm: number;
   omegaBasal: number;
   omegaDermalBase: number;
+  cem43BasalMinutes: number;
+  cem43ReferenceMinutes: number;
+  thermalDoseDisagreement: boolean;
+  comfortClassification: "Comfortable" | "Warm" | "Uncomfortable" | "Painful";
   damageDepthMm: number | null;
   riskClassification: string;
   peakSurfaceFluxWPerM2: number;
@@ -256,6 +261,49 @@ export type RadialSample = {
   finalSurfaceTemperatureC: number;
 };
 
+export type ElectricalLayerResult = {
+  name: string;
+  depthStartMm: number;
+  depthEndMm: number;
+  conductivitySPerM: number;
+  conductivityConfidence: string;
+  currentDensityAPerM2: number;
+  powerDensityWPerM3: number;
+  voltageDropV: number;
+};
+
+export type NerveActivationResult = {
+  pulseDurationUs: number;
+  appliedCurrentMa: number;
+  thresholdCurrentMa: number;
+  rheobaseMa: number;
+  chronaxieUs: number;
+  activationMargin: number;
+  classification: "Sub-threshold" | "Perceptible" | "Motor stimulation" | "Painful";
+  confidence: string;
+  citation: string;
+};
+
+export type ElectricalReport = {
+  waveformType: string;
+  driveMode: string;
+  peakCurrentMa: number;
+  rmsCurrentMa: number;
+  appliedVoltageV: number;
+  tissueResistanceOhm: number;
+  interfaceImpedanceOhm: number;
+  totalImpedanceOhm: number;
+  currentDensityAPerM2: number;
+  totalPowerW: number;
+  chargePerPulseUc: number;
+  chargeDensityUcPerCm2: number;
+  layers: ElectricalLayerResult[];
+  nerveActivation: NerveActivationResult;
+  returnPathAssumption: string;
+  confidence: string;
+  citation: string;
+};
+
 export type HeatContactResult = {
   contactPointId: string;
   label: string;
@@ -277,6 +325,7 @@ export type HeatContactResult = {
   solver: ResolvedSolverSettings;
   warnings: string[];
   radialProfile: RadialSample[];
+  electrical?: ElectricalReport;
 };
 
 export type UnsupportedContact = {
@@ -547,11 +596,35 @@ export type ProofLabCaseResult = {
   caveats: string[];
 };
 
+export type CrossValidationPoint = {
+  x: number;
+  measured: number;
+  predicted: number;
+};
+
+export type CrossValidationCase = {
+  caseId: string;
+  modality: "mechanical" | "electrical";
+  title: string;
+  citation: string;
+  status: string;
+  xLabel: string;
+  xUnit: string;
+  metricLabel: string;
+  metricUnit: string;
+  rmse: number;
+  mae: number;
+  signedBias: number;
+  points: CrossValidationPoint[];
+  caveats: string[];
+};
+
 export type ProofLabReport = {
   modelVersion: string;
   generatedAtUnixMs: number;
   disclosure: string;
   cases: ProofLabCaseResult[];
+  crossValidationCases: CrossValidationCase[];
 };
 
 export type ProofLabRequest = {

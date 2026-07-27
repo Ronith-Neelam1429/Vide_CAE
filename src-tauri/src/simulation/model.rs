@@ -7,7 +7,7 @@
 
 use serde::Serialize;
 
-pub const MODEL_VERSION: &str = "vide-heat-fv-cn/3.0.0";
+pub const MODEL_VERSION: &str = "vide-multiphysics-fv-cn/4.0.0";
 
 /// Review states for a tabulated property. Anything that has not been checked
 /// against the primary source in-app stays `Unreviewed` so exports never imply
@@ -54,6 +54,9 @@ pub struct TissueLayerSpec {
     pub density_kg_per_m3: Property,
     pub specific_heat_j_per_kg_k: Property,
     pub conductivity_w_per_m_k: Property,
+    /// Representative low-frequency electrical conductivity. Skin values are
+    /// especially hydration- and frequency-dependent, hence the broad ranges.
+    pub electrical_conductivity_s_per_m: Property,
     pub perfusion_per_s: Property,
     pub metabolic_w_per_m3: Property,
 }
@@ -107,6 +110,25 @@ impl SkinProfile {
 const TISSUE_SOURCE: &str =
     "Representative human-skin values as compiled in bioheat-transfer literature \
      (e.g. Duck FA 1990, Physical Properties of Tissue; IT'IS Foundation Tissue Properties Database).";
+const ELECTRICAL_SOURCE: &str =
+    "IT'IS Foundation Tissue Properties Database, low-frequency conductivity; \
+     representative values only. Conductivity is frequency-, hydration- and orientation-dependent.";
+
+const fn electrical_prop(
+    value: f64,
+    low: f64,
+    high: f64,
+    confidence: &'static str,
+) -> Property {
+    Property {
+        value,
+        low,
+        high,
+        unit: "S/m",
+        source: ELECTRICAL_SOURCE,
+        review_status: confidence,
+    }
+}
 const THICKNESS_SOURCE: &str =
     "Representative site-specific layer thicknesses reported in dermatological \
      morphometry literature; verify against the primary source for the target population.";
@@ -119,6 +141,7 @@ const fn epidermis(thickness_m: f64, low: f64, high: f64) -> TissueLayerSpec {
         density_kg_per_m3: prop(1200.0, 1100.0, 1250.0, "kg/m^3", TISSUE_SOURCE),
         specific_heat_j_per_kg_k: prop(3590.0, 3300.0, 3800.0, "J/(kg K)", TISSUE_SOURCE),
         conductivity_w_per_m_k: prop(0.235, 0.200, 0.280, "W/(m K)", TISSUE_SOURCE),
+        electrical_conductivity_s_per_m: electrical_prop(0.0002, 0.00005, 0.02, "single-source"),
         perfusion_per_s: prop(0.0, 0.0, 0.0, "1/s", "Epidermis is avascular."),
         metabolic_w_per_m3: prop(0.0, 0.0, 0.0, "W/m^3", "Neglected in the epidermis."),
     }
@@ -131,6 +154,7 @@ const fn dermis(thickness_m: f64, low: f64, high: f64) -> TissueLayerSpec {
         density_kg_per_m3: prop(1200.0, 1100.0, 1250.0, "kg/m^3", TISSUE_SOURCE),
         specific_heat_j_per_kg_k: prop(3300.0, 3200.0, 3600.0, "J/(kg K)", TISSUE_SOURCE),
         conductivity_w_per_m_k: prop(0.445, 0.370, 0.500, "W/(m K)", TISSUE_SOURCE),
+        electrical_conductivity_s_per_m: electrical_prop(0.20, 0.08, 0.45, "single-source"),
         // Cutaneous perfusion swings by more than an order of magnitude with
         // vasodilation, which is why the range here is deliberately wide.
         perfusion_per_s: prop(0.0016, 0.0002, 0.0100, "1/s", TISSUE_SOURCE),
@@ -145,6 +169,7 @@ const fn subcutis(thickness_m: f64, low: f64, high: f64) -> TissueLayerSpec {
         density_kg_per_m3: prop(1000.0, 850.0, 1050.0, "kg/m^3", TISSUE_SOURCE),
         specific_heat_j_per_kg_k: prop(2670.0, 2300.0, 2800.0, "J/(kg K)", TISSUE_SOURCE),
         conductivity_w_per_m_k: prop(0.185, 0.160, 0.250, "W/(m K)", TISSUE_SOURCE),
+        electrical_conductivity_s_per_m: electrical_prop(0.04, 0.015, 0.08, "single-source"),
         perfusion_per_s: prop(0.0010, 0.0002, 0.0030, "1/s", TISSUE_SOURCE),
         metabolic_w_per_m3: prop(368.0, 200.0, 600.0, "W/m^3", TISSUE_SOURCE),
     }
@@ -159,6 +184,7 @@ const fn muscle(thickness_m: f64) -> TissueLayerSpec {
         density_kg_per_m3: prop(1085.0, 1040.0, 1110.0, "kg/m^3", TISSUE_SOURCE),
         specific_heat_j_per_kg_k: prop(3800.0, 3600.0, 3900.0, "J/(kg K)", TISSUE_SOURCE),
         conductivity_w_per_m_k: prop(0.510, 0.450, 0.560, "W/(m K)", TISSUE_SOURCE),
+        electrical_conductivity_s_per_m: electrical_prop(0.35, 0.15, 0.70, "single-source"),
         perfusion_per_s: prop(0.0007, 0.0003, 0.0030, "1/s", TISSUE_SOURCE),
         metabolic_w_per_m3: prop(684.0, 500.0, 1000.0, "W/m^3", TISSUE_SOURCE),
     }
@@ -252,6 +278,7 @@ const fn skin_cover(thickness_m: f64, low: f64, high: f64) -> TissueLayerSpec {
         density_kg_per_m3: prop(1150.0, 1100.0, 1250.0, "kg/m^3", TISSUE_SOURCE),
         specific_heat_j_per_kg_k: prop(3400.0, 3200.0, 3700.0, "J/(kg K)", TISSUE_SOURCE),
         conductivity_w_per_m_k: prop(0.370, 0.300, 0.450, "W/(m K)", TISSUE_SOURCE),
+        electrical_conductivity_s_per_m: electrical_prop(0.02, 0.0002, 0.30, "extrapolated"),
         perfusion_per_s: prop(0.0016, 0.0002, 0.0100, "1/s", TISSUE_SOURCE),
         metabolic_w_per_m3: prop(400.0, 200.0, 800.0, "W/m^3", TISSUE_SOURCE),
     }
@@ -269,6 +296,7 @@ const fn cortical_bone(
         density_kg_per_m3: prop(1908.0, 1700.0, 2000.0, "kg/m^3", BONE_SOURCE),
         specific_heat_j_per_kg_k: prop(1313.0, 1100.0, 1500.0, "J/(kg K)", BONE_SOURCE),
         conductivity_w_per_m_k: prop(0.320, 0.200, 0.580, "W/(m K)", BONE_SOURCE),
+        electrical_conductivity_s_per_m: electrical_prop(0.02, 0.006, 0.08, "single-source"),
         // Cortical bone is poorly perfused on these timescales.
         perfusion_per_s: prop(0.0001, 0.0, 0.0003, "1/s", BONE_SOURCE),
         metabolic_w_per_m3: prop(26.0, 0.0, 100.0, "W/m^3", BONE_SOURCE),
@@ -282,6 +310,7 @@ const fn trabecular_bone(thickness_m: f64) -> TissueLayerSpec {
         density_kg_per_m3: prop(1178.0, 900.0, 1400.0, "kg/m^3", BONE_SOURCE),
         specific_heat_j_per_kg_k: prop(2274.0, 1800.0, 2500.0, "J/(kg K)", BONE_SOURCE),
         conductivity_w_per_m_k: prop(0.310, 0.200, 0.400, "W/(m K)", BONE_SOURCE),
+        electrical_conductivity_s_per_m: electrical_prop(0.08, 0.02, 0.20, "single-source"),
         perfusion_per_s: prop(0.0008, 0.0003, 0.0030, "1/s", BONE_SOURCE),
         metabolic_w_per_m3: prop(26.0, 0.0, 100.0, "W/m^3", BONE_SOURCE),
     }
@@ -294,6 +323,7 @@ const fn yellow_marrow(thickness_m: f64) -> TissueLayerSpec {
         density_kg_per_m3: prop(980.0, 900.0, 1050.0, "kg/m^3", BONE_SOURCE),
         specific_heat_j_per_kg_k: prop(2700.0, 2000.0, 3000.0, "J/(kg K)", BONE_SOURCE),
         conductivity_w_per_m_k: prop(0.185, 0.150, 0.300, "W/(m K)", BONE_SOURCE),
+        electrical_conductivity_s_per_m: electrical_prop(0.07, 0.02, 0.20, "extrapolated"),
         perfusion_per_s: prop(0.0002, 0.0, 0.0010, "1/s", BONE_SOURCE),
         metabolic_w_per_m3: prop(5.0, 0.0, 50.0, "W/m^3", BONE_SOURCE),
     }
@@ -308,6 +338,7 @@ const fn hair_canopy(thickness_m: f64, low: f64, high: f64) -> TissueLayerSpec {
         density_kg_per_m3: prop(250.0, 100.0, 500.0, "kg/m^3", KERATIN_SOURCE),
         specific_heat_j_per_kg_k: prop(1500.0, 1000.0, 2000.0, "J/(kg K)", KERATIN_SOURCE),
         conductivity_w_per_m_k: prop(0.100, 0.050, 0.200, "W/(m K)", KERATIN_SOURCE),
+        electrical_conductivity_s_per_m: electrical_prop(1.0e-8, 1.0e-10, 1.0e-5, "extrapolated"),
         perfusion_per_s: prop(0.0, 0.0, 0.0, "1/s", "Hair is not perfused."),
         metabolic_w_per_m3: prop(0.0, 0.0, 0.0, "W/m^3", "Hair is metabolically inert."),
     }
@@ -320,6 +351,7 @@ const fn scalp_skin(thickness_m: f64, low: f64, high: f64) -> TissueLayerSpec {
         density_kg_per_m3: prop(1150.0, 1100.0, 1250.0, "kg/m^3", TISSUE_SOURCE),
         specific_heat_j_per_kg_k: prop(3400.0, 3200.0, 3700.0, "J/(kg K)", TISSUE_SOURCE),
         conductivity_w_per_m_k: prop(0.340, 0.300, 0.450, "W/(m K)", TISSUE_SOURCE),
+        electrical_conductivity_s_per_m: electrical_prop(0.02, 0.0002, 0.30, "extrapolated"),
         // The scalp is among the most vascular skin sites.
         perfusion_per_s: prop(0.0030, 0.0010, 0.0120, "1/s", TISSUE_SOURCE),
         metabolic_w_per_m3: prop(500.0, 200.0, 900.0, "W/m^3", TISSUE_SOURCE),
@@ -333,6 +365,7 @@ const fn galea(thickness_m: f64, low: f64, high: f64) -> TissueLayerSpec {
         density_kg_per_m3: prop(1000.0, 900.0, 1050.0, "kg/m^3", TISSUE_SOURCE),
         specific_heat_j_per_kg_k: prop(2500.0, 2300.0, 2800.0, "J/(kg K)", TISSUE_SOURCE),
         conductivity_w_per_m_k: prop(0.210, 0.160, 0.260, "W/(m K)", TISSUE_SOURCE),
+        electrical_conductivity_s_per_m: electrical_prop(0.05, 0.015, 0.15, "extrapolated"),
         perfusion_per_s: prop(0.0008, 0.0002, 0.0030, "1/s", TISSUE_SOURCE),
         metabolic_w_per_m3: prop(300.0, 150.0, 600.0, "W/m^3", TISSUE_SOURCE),
     }
@@ -345,6 +378,7 @@ const fn cartilage(name: &'static str, thickness_m: f64, low: f64, high: f64) ->
         density_kg_per_m3: prop(1100.0, 1050.0, 1150.0, "kg/m^3", CARTILAGE_SOURCE),
         specific_heat_j_per_kg_k: prop(3568.0, 3200.0, 3800.0, "J/(kg K)", CARTILAGE_SOURCE),
         conductivity_w_per_m_k: prop(0.490, 0.210, 0.550, "W/(m K)", CARTILAGE_SOURCE),
+        electrical_conductivity_s_per_m: electrical_prop(0.18, 0.08, 0.40, "single-source"),
         // Avascular.
         perfusion_per_s: prop(0.0, 0.0, 0.0, "1/s", "Cartilage is avascular."),
         metabolic_w_per_m3: prop(150.0, 50.0, 400.0, "W/m^3", CARTILAGE_SOURCE),
@@ -358,6 +392,7 @@ const fn cell_construct(thickness_m: f64, low: f64, high: f64) -> TissueLayerSpe
         density_kg_per_m3: prop(1050.0, 1010.0, 1100.0, "kg/m^3", INVITRO_SOURCE),
         specific_heat_j_per_kg_k: prop(3900.0, 3700.0, 4100.0, "J/(kg K)", INVITRO_SOURCE),
         conductivity_w_per_m_k: prop(0.520, 0.450, 0.600, "W/(m K)", INVITRO_SOURCE),
+        electrical_conductivity_s_per_m: electrical_prop(0.30, 0.10, 0.80, "extrapolated"),
         perfusion_per_s: prop(0.0, 0.0, 0.0, "1/s", "No perfusion in vitro."),
         metabolic_w_per_m3: prop(0.0, 0.0, 0.0, "W/m^3", INVITRO_SOURCE),
     }
@@ -370,6 +405,7 @@ const fn culture_medium(name: &'static str, thickness_m: f64) -> TissueLayerSpec
         density_kg_per_m3: prop(1000.0, 995.0, 1010.0, "kg/m^3", INVITRO_SOURCE),
         specific_heat_j_per_kg_k: prop(4180.0, 4150.0, 4200.0, "J/(kg K)", INVITRO_SOURCE),
         conductivity_w_per_m_k: prop(0.600, 0.580, 0.620, "W/(m K)", INVITRO_SOURCE),
+        electrical_conductivity_s_per_m: electrical_prop(1.50, 1.20, 1.80, "single-source"),
         perfusion_per_s: prop(0.0, 0.0, 0.0, "1/s", "No perfusion in vitro."),
         metabolic_w_per_m3: prop(0.0, 0.0, 0.0, "W/m^3", INVITRO_SOURCE),
     }

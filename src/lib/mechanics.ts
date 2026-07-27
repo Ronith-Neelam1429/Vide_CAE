@@ -42,6 +42,26 @@ export type FatigueResult = {
   permanentShapeChangeUm: number;
   cycleSeries: CycleSample[];
   verdict: string;
+  confidence: "established" | "single-source" | "extrapolated";
+  basis: string;
+};
+
+export type PressureDurationPoint = {
+  durationMinutes: number;
+  thresholdPressureKpa: number;
+};
+
+export type PressureInjuryRisk = {
+  appliedPressureKpa: number;
+  durationMinutes: number;
+  thresholdPressureKpa: number;
+  thresholdRatio: number;
+  classification: "Below threshold" | "Approaching threshold" | "Exceeds threshold";
+  confidence: "extrapolated";
+  model: string;
+  citation: string;
+  caveat: string;
+  curve: PressureDurationPoint[];
 };
 
 export type MechInputs = {
@@ -50,6 +70,7 @@ export type MechInputs = {
   holdS: number;
   recoveryS: number;
   loadingMode: string;
+  waveformShape: string;
   cycles: number;
   frequencyHz: number;
   dutyCycle: number;
@@ -76,6 +97,7 @@ export type MechContactResult = {
   summary: MechSummary;
   indentationSeries: IndentSample[];
   fatigue: FatigueResult | null;
+  pressureInjury: PressureInjuryRisk | null;
   warnings: string[];
 };
 

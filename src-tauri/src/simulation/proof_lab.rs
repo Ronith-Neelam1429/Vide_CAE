@@ -12,7 +12,7 @@ use super::validation::{
     compare_series, parse_measured_csv, ComparisonMetrics, ComparisonPoint, MeasuredSample,
     MeasurementTarget, ProtocolSpec,
 };
-use super::{build_case, resolve_solver_dimension, solve_heat_case, SimulationContact, SolverSettings, ThermalSample};
+use super::{build_case, SimulationContact, SolverSettings, ThermalSample};
 
 const WANG_EPOS_PROTOCOL: &str =
     include_str!("../../../benchmarks/proof-lab/wang-epos-2019-subject070/protocol.json");
@@ -26,6 +26,10 @@ const PETROFSKY_PROTOCOL: &str =
     include_str!("../../../benchmarks/proof-lab/petrofsky-2011-quad-44c/protocol.json");
 const PETROFSKY_GROUND_TRUTH: &str =
     include_str!("../../../benchmarks/proof-lab/petrofsky-2011-quad-44c/ground-truth.csv");
+const MECHANICAL_GROUND_TRUTH: &str =
+    include_str!("../../../benchmarks/proof-lab/linares-reswick-rogers-2012/ground-truth.csv");
+const ELECTRICAL_GROUND_TRUTH: &str =
+    include_str!("../../../benchmarks/proof-lab/hugosdottir-2019-patch-electrode/ground-truth.csv");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,6 +102,125 @@ pub struct ProofLabReport {
     pub generated_at_unix_ms: u64,
     pub disclosure: &'static str,
     pub cases: Vec<ProofLabCaseResult>,
+    pub cross_validation_cases: Vec<CrossValidationCase>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CrossValidationPoint {
+    pub x: f64,
+    pub measured: f64,
+    pub predicted: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CrossValidationCase {
+    pub case_id: &'static str,
+    pub modality: &'static str,
+    pub title: &'static str,
+    pub citation: &'static str,
+    pub status: &'static str,
+    pub x_label: &'static str,
+    pub x_unit: &'static str,
+    pub metric_label: &'static str,
+    pub metric_unit: &'static str,
+    pub rmse: f64,
+    pub mae: f64,
+    pub signed_bias: f64,
+    pub points: Vec<CrossValidationPoint>,
+    pub caveats: Vec<&'static str>,
+}
+
+fn cross_metrics(points: &[CrossValidationPoint]) -> (f64, f64, f64) {
+    let count = points.len().max(1) as f64;
+    let errors: Vec<f64> = points
+        .iter()
+        .map(|point| point.predicted - point.measured)
+        .collect();
+    let rmse = (errors.iter().map(|error| error * error).sum::<f64>() / count).sqrt();
+    let mae = errors.iter().map(|error| error.abs()).sum::<f64>() / count;
+    let signed_bias = errors.iter().sum::<f64>() / count;
+    (rmse, mae, signed_bias)
+}
+
+fn parse_scalar_ground_truth(csv: &str) -> Vec<(f64, f64)> {
+    csv.lines()
+        .skip(1)
+        .filter_map(|line| {
+            let mut columns = line.split(',');
+            Some((columns.next()?.trim().parse().ok()?, columns.next()?.trim().parse().ok()?))
+        })
+        .collect()
+}
+
+fn mechanical_cross_validation() -> CrossValidationCase {
+    // Independent human Reswick-Rogers curve reconstruction from Linares et
+    // al. The production screen uses the Linder-Ganz sigmoid coefficients and
+    // does not receive these exponential coefficients.
+    let points = parse_scalar_ground_truth(MECHANICAL_GROUND_TRUTH)
+        .into_iter()
+        .map(|(hours, measured)| {
+            CrossValidationPoint {
+                x: hours,
+                measured,
+                predicted: super::mechanics::pressure_time_threshold_kpa(hours * 60.0),
+            }
+        })
+        .collect::<Vec<_>>();
+    let (rmse, mae, signed_bias) = cross_metrics(&points);
+    CrossValidationCase {
+        case_id: "linares-reswick-rogers-2012",
+        modality: "mechanical",
+        title: "Human Reswick–Rogers pressure-duration curve transfer check",
+        citation: "Linares OA, Mawson AR, Suarez E. J Basic Appl Sci. 2012;8:720-728. doi:10.6000/1927-5129.2012.08.02.64.",
+        status: "External cross-model validation",
+        x_label: "Load duration",
+        x_unit: "h",
+        metric_label: "Pressure threshold",
+        metric_unit: "kPa",
+        rmse,
+        mae,
+        signed_bias,
+        points,
+        caveats: vec![
+            "The production criterion is a rat-muscle sigmoid screen; the comparison curve is a human clinical Reswick-Rogers reconstruction. Large disagreement is expected and must remain visible.",
+            "Neither curve is a patient-specific pressure-injury boundary; shear, perfusion, posture and bony prominence geometry are omitted.",
+        ],
+    }
+}
+
+fn electrical_cross_validation() -> CrossValidationCase {
+    // Independent patch-electrode median fit (rheobase 0.40 mA, chronaxie
+    // 0.57 ms). The production model uses Kodama et al. intraepidermal Aδ data.
+    let points = parse_scalar_ground_truth(ELECTRICAL_GROUND_TRUTH)
+        .into_iter()
+        .map(|(duration_us, measured)| CrossValidationPoint {
+            x: duration_us,
+            measured,
+            predicted: super::nerve_threshold_current_ma(duration_us),
+        })
+        .collect::<Vec<_>>();
+    let (rmse, mae, signed_bias) = cross_metrics(&points);
+    CrossValidationCase {
+        case_id: "hugosdottir-2019-patch-electrode",
+        modality: "electrical",
+        title: "Patch-electrode sensory threshold transfer check",
+        citation: "Hugosdottir R et al. BMC Neurosci. 2019;20:52. doi:10.1186/s12868-019-0530-8.",
+        status: "Independent cross-study validation",
+        x_label: "Pulse duration",
+        x_unit: "µs",
+        metric_label: "Perception threshold",
+        metric_unit: "mA",
+        rmse,
+        mae,
+        signed_bias,
+        points,
+        caveats: vec![
+            "The validation study used a surface patch electrode; production defaults come from an intraepidermal Aδ electrode study. This intentionally tests transfer and is not expected to pass without electrode-specific calibration.",
+            "Published median rheobase and chronaxie fits are compared, not individual-subject raw thresholds.",
+        ],
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -311,6 +434,10 @@ pub fn run_proof_lab(request: ProofLabRequest) -> Result<ProofLabReport, String>
         generated_at_unix_ms,
         disclosure: "Blind proof-lab comparison only. The solver saw protocol inputs only; measured series were compared afterward. No experimental pass/fail claim.",
         cases,
+        cross_validation_cases: vec![
+            mechanical_cross_validation(),
+            electrical_cross_validation(),
+        ],
     })
 }
 
@@ -330,6 +457,11 @@ mod tests {
     fn proof_lab_runs_skin_and_interface_cases() {
         let report = run_proof_lab(ProofLabRequest::default()).expect("report");
         assert_eq!(report.cases.len(), 3);
+        assert_eq!(report.cross_validation_cases.len(), 2);
+        assert!(report
+            .cross_validation_cases
+            .iter()
+            .all(|case| case.rmse.is_finite() && case.mae.is_finite()));
 
         let mayrovitz = report
             .cases

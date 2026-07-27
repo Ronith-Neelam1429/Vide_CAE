@@ -10,7 +10,11 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { HeatContactResult } from "../../lib/simulation";
+import {
+  runSimulation as runHeatSimulation,
+  SOLVER_PRESETS,
+  type HeatContactResult,
+} from "../../lib/simulation";
 import {
   injuryRiskFromOmega,
   timeToPeakBasalS,
@@ -18,6 +22,7 @@ import {
 } from "../../lib/verdict";
 import { useExperimentStore } from "../../store/experimentStore";
 import { MechanicsPanel } from "./MechanicsPanel";
+import { ElectricalPanel } from "./ElectricalPanel";
 
 function formatSeconds(value: number | null) {
   return value === null ? "Not reached" : `${value.toFixed(2)} s`;
@@ -373,6 +378,14 @@ function VerdictCard({ contact }: { contact: HeatContactResult }) {
   const { level, tone } = injuryRiskFromOmega(summary.omegaBasal, summary.omegaDermalBase);
   const peakTime = timeToPeakBasalS(contact.series);
   const sentence = verdictSentence(summary, peakTime);
+  const comfortTone =
+    summary.comfortClassification === "Painful"
+      ? "exceeded"
+      : summary.comfortClassification === "Uncomfortable"
+        ? "high"
+        : summary.comfortClassification === "Warm"
+          ? "moderate"
+          : "none";
 
   return (
     <section className={`verdict-card is-${tone}`} aria-live="polite">
@@ -381,10 +394,21 @@ function VerdictCard({ contact }: { contact: HeatContactResult }) {
           <strong>{contact.label}</strong>
           <span>{contact.skinProfile.label}</span>
         </div>
-        <div className={`verdict-card__badge is-${tone}`}>
-          <span className="verdict-card__badge-label">Injury risk</span>
-          <span className="verdict-card__badge-value">{level}</span>
-          <span className="verdict-card__badge-threshold">Ω threshold = 1.0</span>
+        <div className="verdict-card__badges">
+          <div className={`verdict-card__badge is-${tone}`}>
+            <span className="verdict-card__badge-label">Injury risk</span>
+            <span className="verdict-card__badge-value">{level}</span>
+            <span className="verdict-card__badge-threshold">Ω threshold = 1.0</span>
+          </div>
+          <div className={`verdict-card__badge is-${comfortTone}`}>
+            <span className="verdict-card__badge-label">Thermal comfort</span>
+            <span className="verdict-card__badge-value">
+              {summary.comfortClassification}
+            </span>
+            <span className="verdict-card__badge-threshold">
+              nociceptor onset ≈ 43–45 °C
+            </span>
+          </div>
         </div>
       </div>
 
@@ -411,6 +435,15 @@ function VerdictCard({ contact }: { contact: HeatContactResult }) {
             </strong>
           </div>
           <div>
+            <span>CEM43 dose</span>
+            <strong>
+              {summary.cem43BasalMinutes < 0.01
+                ? summary.cem43BasalMinutes.toExponential(2)
+                : summary.cem43BasalMinutes.toFixed(2)}
+              <em> min</em>
+            </strong>
+          </div>
+          <div>
             <span>Peak surface</span>
             <strong className="is-secondary">
               {summary.peakSurfaceTemperatureC.toFixed(1)} °C
@@ -418,6 +451,14 @@ function VerdictCard({ contact }: { contact: HeatContactResult }) {
           </div>
         </div>
       </div>
+      {summary.thermalDoseDisagreement && (
+        <div className="verdict-card__caveat">
+          Thermal-dose metrics disagree: Ω and the {summary.cem43ReferenceMinutes.toFixed(0)}
+          -minute CEM43 reference do not flag the same outcome. CEM43 thresholds are
+          tissue- and protocol-dependent; inspect both metrics rather than treating either
+          as definitive.
+        </div>
+      )}
     </section>
   );
 }
@@ -529,6 +570,214 @@ function ContactResult({ contact }: { contact: HeatContactResult }) {
   );
 }
 
+function MultiContactComparison({
+  contacts,
+  selectedId,
+  onSelect,
+}: {
+  contacts: HeatContactResult[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const ranked = [...contacts].sort(
+    (a, b) =>
+      b.summary.omegaBasal - a.summary.omegaBasal ||
+      b.summary.peakBasalTemperatureC - a.summary.peakBasalTemperatureC,
+  );
+
+  return (
+    <section className="contact-comparison">
+      <div className="contact-comparison__header">
+        <strong>Contact comparison</strong>
+        <span>Ranked by damage Ω, then peak basal temperature</span>
+      </div>
+      <div className="contact-comparison__grid">
+        {ranked.map((contact, index) => {
+          const risk = injuryRiskFromOmega(
+            contact.summary.omegaBasal,
+            contact.summary.omegaDermalBase,
+          );
+          return (
+            <button
+              key={contact.contactPointId}
+              type="button"
+              className={`contact-comparison__item is-${risk.tone}${
+                selectedId === contact.contactPointId ? " is-selected" : ""
+              }`}
+              onClick={() => onSelect(contact.contactPointId)}
+            >
+              <span className="contact-comparison__rank">#{index + 1}</span>
+              <span className="contact-comparison__name">{contact.label}</span>
+              <span>{risk.level}</span>
+              <code>{contact.summary.peakBasalTemperatureC.toFixed(1)} °C</code>
+              <code>Ω {formatOmega(contact.summary.omegaBasal)}</code>
+              <code>{formatSeconds(contact.summary.timeTo44cS)}</code>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+type SweepPoint = {
+  value: number;
+  peakBasalC: number;
+  omega: number;
+  timeToThresholdS: number | null;
+};
+
+const SWEEP_PARAMETERS = {
+  temperatureC: { label: "Device temperature", unit: "°C", min: 20, max: 150 },
+  durationS: { label: "Contact duration", unit: "s", min: 0.1, max: 3600 },
+  contactAreaMm2: { label: "Contact area", unit: "mm²", min: 1, max: 50000 },
+} as const;
+
+function ParameterSweepTool({ contactId }: { contactId: string }) {
+  const contact = useExperimentStore((state) =>
+    state.contactPoints.find((entry) => entry.id === contactId),
+  );
+  const assignment = useExperimentStore((state) =>
+    state.assignments.find((entry) => entry.contactPointId === contactId),
+  );
+  const solverPreset = useExperimentStore((state) => state.solverPreset);
+  const [open, setOpen] = useState(false);
+  const [parameter, setParameter] =
+    useState<keyof typeof SWEEP_PARAMETERS>("temperatureC");
+  const current = assignment?.parameters[parameter] ?? 1;
+  const [range, setRange] = useState({ min: current * 0.8, max: current * 1.2, points: 7 });
+  const [metric, setMetric] = useState<"peakBasalC" | "omega" | "timeToThresholdS">(
+    "peakBasalC",
+  );
+  const [data, setData] = useState<SweepPoint[]>([]);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const next = assignment?.parameters[parameter] ?? 1;
+    const bounds = SWEEP_PARAMETERS[parameter];
+    setRange({
+      min: Math.max(bounds.min, next * 0.8),
+      max: Math.min(bounds.max, next * 1.2),
+      points: 7,
+    });
+    setData([]);
+  }, [assignment, parameter]);
+
+  const runSweep = async () => {
+    if (!contact || !assignment || running) return;
+    setRunning(true);
+    setError(null);
+    try {
+      const count = Math.round(range.points);
+      const settings = {
+        ...SOLVER_PRESETS[solverPreset].settings,
+        runConvergenceCheck: false,
+        runSensitivity: false,
+      };
+      const points: SweepPoint[] = [];
+      for (let index = 0; index < count; index += 1) {
+        const value =
+          count === 1
+            ? range.min
+            : range.min + ((range.max - range.min) * index) / (count - 1);
+        const sweptAssignment = {
+          ...assignment,
+          parameters: { ...assignment.parameters, [parameter]: value },
+        };
+        const result = await runHeatSimulation([contact], [sweptAssignment], settings);
+        const summary = result.contacts[0]?.summary;
+        if (!summary) throw new Error("Sweep run returned no contact result.");
+        points.push({
+          value,
+          peakBasalC: summary.peakBasalTemperatureC,
+          omega: summary.omegaBasal,
+          timeToThresholdS: summary.timeTo44cS,
+        });
+      }
+      setData(points);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const config = SWEEP_PARAMETERS[parameter];
+  const metricLabel =
+    metric === "peakBasalC"
+      ? "Peak basal (°C)"
+      : metric === "omega"
+        ? "Damage Ω"
+        : "Time to 44 °C (s)";
+
+  return (
+    <section className="physics-detail parameter-sweep">
+      <button
+        type="button"
+        className="physics-detail__toggle"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <span className={`result-section__chevron${open ? " is-open" : ""}`}>›</span>
+        Parameter sweep
+        <span className="physics-detail__hint">explore the design space</span>
+      </button>
+      {open && (
+        <div className="physics-detail__body">
+          <div className="parameter-sweep__controls">
+            <label>
+              <span>Parameter</span>
+              <select
+                value={parameter}
+                onChange={(event) =>
+                  setParameter(event.target.value as keyof typeof SWEEP_PARAMETERS)
+                }
+              >
+                {Object.entries(SWEEP_PARAMETERS).map(([key, value]) => (
+                  <option key={key} value={key}>{value.label}</option>
+                ))}
+              </select>
+            </label>
+            <label><span>Min ({config.unit})</span><input type="number" value={range.min} onChange={(event) => setRange((value) => ({ ...value, min: Number(event.target.value) }))} /></label>
+            <label><span>Max ({config.unit})</span><input type="number" value={range.max} onChange={(event) => setRange((value) => ({ ...value, max: Number(event.target.value) }))} /></label>
+            <label><span>Points</span><input type="number" min={3} max={15} value={range.points} onChange={(event) => setRange((value) => ({ ...value, points: Math.max(3, Math.min(15, Number(event.target.value))) }))} /></label>
+            <button type="button" onClick={() => void runSweep()} disabled={running || range.max <= range.min}>
+              {running ? "Sweeping…" : "Run sweep"}
+            </button>
+          </div>
+          {error && <div className="sidebar__error">{error}</div>}
+          {data.length > 0 && (
+            <>
+              <div className="results-chart-tabs">
+                <button type="button" className={`results-chart-tab${metric === "peakBasalC" ? " is-active" : ""}`} onClick={() => setMetric("peakBasalC")}>Peak basal</button>
+                <button type="button" className={`results-chart-tab${metric === "omega" ? " is-active" : ""}`} onClick={() => setMetric("omega")}>Damage Ω</button>
+                <button type="button" className={`results-chart-tab${metric === "timeToThresholdS" ? " is-active" : ""}`} onClick={() => setMetric("timeToThresholdS")}>Time to threshold</button>
+              </div>
+              <div className="results-chart">
+                <ResponsiveContainer width="100%" height={240}>
+                  <LineChart data={data} margin={{ top: 12, right: 12, bottom: 2, left: -8 }}>
+                    <CartesianGrid stroke="#3d3d3d" strokeDasharray="3 3" />
+                    <XAxis dataKey="value" type="number" unit={` ${config.unit}`} {...AXIS} />
+                    <YAxis width={64} {...AXIS} />
+                    {metric === "omega" && <ReferenceLine y={1} stroke="#e5554b" strokeDasharray="4 4" />}
+                    <Tooltip content={<ChartTooltip unit={metricLabel} />} />
+                    <Line type="monotone" dataKey={metric} name={metricLabel} stroke="#20b8ed" strokeWidth={2} dot isAnimationActive={false} connectNulls={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+                <p className="results-chart__caption">
+                  Independent solver runs with convergence and sensitivity diagnostics disabled
+                  for speed. The current workspace inputs are otherwise held fixed.
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function ResultsPanel() {
   const result = useExperimentStore((s) => s.simulationResult);
   const mechanics = useExperimentStore((s) => s.mechanicsResult);
@@ -538,14 +787,24 @@ export function ResultsPanel() {
   const selectContact = useExperimentStore((s) => s.selectContact);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const hasThermal = !!result && result.contacts.length > 0;
+  const thermalContacts = useMemo(
+    () => result?.contacts.filter((contact) => !contact.electrical) ?? [],
+    [result],
+  );
+  const electricalContacts = useMemo(
+    () => result?.contacts.filter((contact) => !!contact.electrical) ?? [],
+    [result],
+  );
+  const hasThermal = thermalContacts.length > 0;
+  const hasElectrical = electricalContacts.length > 0;
   const hasMech = !!mechanics && mechanics.contacts.length > 0;
-  const [view, setView] = useState<"thermal" | "mechanical">("thermal");
+  const [view, setView] = useState<"thermal" | "electrical" | "mechanical">("thermal");
 
   useEffect(() => {
-    if (hasMech && !hasThermal) setView("mechanical");
-    else if (hasThermal && !hasMech) setView("thermal");
-  }, [hasThermal, hasMech]);
+    if (hasThermal) setView("thermal");
+    else if (hasElectrical) setView("electrical");
+    else if (hasMech) setView("mechanical");
+  }, [hasThermal, hasElectrical, hasMech]);
 
   useEffect(() => {
     if (!result) {
@@ -568,10 +827,10 @@ export function ResultsPanel() {
 
   const selected = useMemo(
     () =>
-      result?.contacts.find((contact) => contact.contactPointId === selectedId) ??
-      result?.contacts[0] ??
+        thermalContacts.find((contact) => contact.contactPointId === selectedId) ??
+      thermalContacts[0] ??
       null,
-    [result, selectedId],
+    [thermalContacts, selectedId],
   );
 
   return (
@@ -582,7 +841,7 @@ export function ResultsPanel() {
         </div>
       )}
 
-      {!hasThermal && !hasMech && status !== "running" && !error && (
+      {!hasThermal && !hasElectrical && !hasMech && status !== "running" && !error && (
         <div className="results-empty">
           <strong>No run yet</strong>
           <span>Place a stimulus, then press Run in the scene bar.</span>
@@ -593,26 +852,41 @@ export function ResultsPanel() {
         <div className="results-panel__running">Solving the layered tissue response…</div>
       )}
 
-      {hasThermal && hasMech && (
+      {[hasThermal, hasElectrical, hasMech].filter(Boolean).length > 1 && (
         <div className="results-view-tabs" role="tablist" aria-label="Result type">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={view === "thermal"}
-            className={`results-view-tab${view === "thermal" ? " is-active" : ""}`}
-            onClick={() => setView("thermal")}
-          >
-            Thermal
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={view === "mechanical"}
-            className={`results-view-tab${view === "mechanical" ? " is-active" : ""}`}
-            onClick={() => setView("mechanical")}
-          >
-            Mechanical
-          </button>
+          {hasThermal && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "thermal"}
+              className={`results-view-tab${view === "thermal" ? " is-active" : ""}`}
+              onClick={() => setView("thermal")}
+            >
+              Thermal
+            </button>
+          )}
+          {hasElectrical && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "electrical"}
+              className={`results-view-tab${view === "electrical" ? " is-active" : ""}`}
+              onClick={() => setView("electrical")}
+            >
+              Electrical
+            </button>
+          )}
+          {hasMech && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "mechanical"}
+              className={`results-view-tab${view === "mechanical" ? " is-active" : ""}`}
+              onClick={() => setView("mechanical")}
+            >
+              Mechanical
+            </button>
+          )}
         </div>
       )}
 
@@ -624,11 +898,29 @@ export function ResultsPanel() {
         />
       )}
 
+      {hasElectrical && view === "electrical" && (
+        <ElectricalPanel
+          contacts={electricalContacts}
+          selectedContactId={selectedContactId}
+          onSelectContact={selectContact}
+        />
+      )}
+
       {hasThermal && view === "thermal" && result && (
         <>
-          {result.contacts.length > 1 && (
+          {thermalContacts.length > 1 && (
+            <MultiContactComparison
+              contacts={thermalContacts}
+              selectedId={selected?.contactPointId ?? null}
+              onSelect={(id) => {
+                setSelectedId(id);
+                selectContact(id);
+              }}
+            />
+          )}
+          {thermalContacts.length > 1 && (
             <div className="results-contact-tabs" role="tablist" aria-label="Heat contact results">
-              {result.contacts.map((contact) => (
+              {thermalContacts.map((contact) => (
                 <button
                   type="button"
                   key={contact.contactPointId}
@@ -648,7 +940,12 @@ export function ResultsPanel() {
             </div>
           )}
 
-          {selected && <ContactResult contact={selected} />}
+          {selected && (
+            <>
+              <ContactResult contact={selected} />
+              <ParameterSweepTool contactId={selected.contactPointId} />
+            </>
+          )}
 
           {result.unsupportedContacts.length > 0 && (
             <div className="results-panel__unsupported">

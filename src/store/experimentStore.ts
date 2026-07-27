@@ -831,8 +831,11 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
 
     const stimulusFor = (contactId: string) =>
       state.assignments.find((a) => a.contactPointId === contactId)?.stimulusType;
-    const heatContacts = state.contactPoints.filter(
-      (c) => stimulusFor(c.id) === "heat",
+    const thermalContacts = state.contactPoints.filter(
+      (c) => {
+        const stimulus = stimulusFor(c.id);
+        return stimulus === "heat" || stimulus === "electrical";
+      },
     );
     const pressureContacts = state.contactPoints.filter(
       (c) => stimulusFor(c.id) === "pressure",
@@ -853,8 +856,8 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
 
     try {
       const [simulationResult, mechanicsResult] = await Promise.all([
-        heatContacts.length > 0
-          ? runSimulation(heatContacts, state.assignments, settings)
+        thermalContacts.length > 0
+          ? runSimulation(thermalContacts, state.assignments, settings)
           : Promise.resolve(null),
         pressureContacts.length > 0
           ? runMechanics(pressureContacts, state.assignments, settings)

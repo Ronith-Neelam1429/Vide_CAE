@@ -282,6 +282,72 @@ const HEAT_FIELDS: StimulusField[] = [
     group: "environment",
     catalog: "damageModels",
   },
+  {
+    kind: "choice",
+    key: "protocolMode",
+    label: "Temperature protocol",
+    defaultValue: "constant",
+    group: "essential",
+    choices: [
+      { value: "constant", label: "Constant hold" },
+      { value: "timeline", label: "Timeline · hold → ramp → release → repeat" },
+    ],
+  },
+  {
+    kind: "number",
+    key: "timelineHoldS",
+    label: "Hold duration",
+    unit: "s",
+    min: 0,
+    max: 3600,
+    step: 1,
+    defaultValue: 10,
+    group: "essential",
+  },
+  {
+    kind: "number",
+    key: "timelineRampTargetC",
+    label: "Ramp target",
+    unit: "°C",
+    min: 20,
+    max: 150,
+    step: 0.1,
+    defaultValue: 46,
+    group: "essential",
+  },
+  {
+    kind: "number",
+    key: "timelineRampS",
+    label: "Ramp duration",
+    unit: "s",
+    min: 0,
+    max: 3600,
+    step: 1,
+    defaultValue: 5,
+    group: "essential",
+  },
+  {
+    kind: "number",
+    key: "timelineReleaseS",
+    label: "Release / cool duration",
+    unit: "s",
+    min: 0,
+    max: 3600,
+    step: 1,
+    defaultValue: 10,
+    group: "essential",
+  },
+  {
+    kind: "number",
+    key: "timelineRepeats",
+    label: "Repeat count",
+    unit: "×",
+    min: 1,
+    max: 1000,
+    step: 1,
+    defaultValue: 1,
+    group: "essential",
+  },
 ];
 
 const PRESSURE_FIELDS: StimulusField[] = [
@@ -336,14 +402,27 @@ const PRESSURE_FIELDS: StimulusField[] = [
   {
     kind: "choice",
     key: "loadingMode",
-    label: "Loading mode",
+    label: "Compression mode",
     defaultValue: "static",
     group: "essential",
     choices: [
-      { value: "static", label: "Static — single hold and release" },
-      { value: "cyclic", label: "Cyclic — repeated load (bone fatigue)" },
+      { value: "static", label: "Stable load — hold then release" },
+      { value: "cyclic", label: "Cyclic compression — repeated loading" },
     ],
-    help: "Cyclic loading evaluates fatigue damage and shape change in load-bearing bone.",
+    help: "Choose this first. Stable load evaluates creep, recovery and pressure-time risk; cyclic compression evaluates repeated-load damage.",
+  },
+  {
+    kind: "choice",
+    key: "waveformShape",
+    label: "Waveform",
+    defaultValue: "square",
+    group: "essential",
+    choices: [
+      { value: "square", label: "Square — abrupt load / unload" },
+      { value: "sinusoidal", label: "Sinusoidal — smooth oscillation" },
+      { value: "trapezoidal", label: "Trapezoidal — ramp, hold, release" },
+    ],
+    help: "The waveform controls the displayed pressure history. Fatigue uses its equivalent alternating stress amplitude.",
   },
   {
     kind: "number",
@@ -404,6 +483,151 @@ const PRESSURE_FIELDS: StimulusField[] = [
   },
 ];
 
+const ELECTRICAL_FIELDS: StimulusField[] = [
+  {
+    kind: "choice",
+    key: "waveformType",
+    label: "Waveform",
+    defaultValue: "pulsed",
+    group: "essential",
+    choices: [
+      { value: "dc", label: "DC — continuous current" },
+      { value: "ac", label: "AC — sinusoidal" },
+      { value: "pulsed", label: "Pulsed — rectangular pulses" },
+    ],
+  },
+  {
+    kind: "choice",
+    key: "electricalDriveMode",
+    label: "Drive",
+    defaultValue: "current",
+    group: "essential",
+    choices: [
+      { value: "current", label: "Current controlled" },
+      { value: "voltage", label: "Voltage controlled" },
+    ],
+  },
+  {
+    kind: "number",
+    key: "currentMa",
+    label: "Current amplitude",
+    unit: "mA",
+    min: 0,
+    max: 1000,
+    step: 0.1,
+    defaultValue: 5,
+    group: "essential",
+  },
+  {
+    kind: "number",
+    key: "voltageV",
+    label: "Voltage amplitude",
+    unit: "V",
+    min: 0,
+    max: 1000,
+    step: 0.1,
+    defaultValue: 10,
+    group: "essential",
+  },
+  {
+    kind: "number",
+    key: "pulseDurationUs",
+    label: "Pulse duration",
+    unit: "µs",
+    min: 1,
+    max: 1_000_000,
+    step: 10,
+    defaultValue: 250,
+    group: "essential",
+  },
+  {
+    kind: "number",
+    key: "frequencyHz",
+    label: "Frequency",
+    unit: "Hz",
+    min: 0.01,
+    max: 100_000,
+    step: 1,
+    defaultValue: 50,
+    group: "essential",
+  },
+  {
+    kind: "number",
+    key: "durationS",
+    label: "Total duration",
+    unit: "s",
+    min: 0.1,
+    max: 3600,
+    step: 1,
+    defaultValue: 60,
+    group: "essential",
+  },
+  {
+    kind: "number",
+    key: "contactAreaMm2",
+    label: "Electrode contact area",
+    unit: "mm²",
+    min: 1,
+    max: 50_000,
+    step: 1,
+    defaultValue: 400,
+    group: "essential",
+  },
+  {
+    kind: "choice",
+    key: "skinProfileId",
+    label: "Tissue site",
+    defaultValue: "volar-forearm",
+    group: "environment",
+    catalog: "skinProfiles",
+  },
+  {
+    kind: "number",
+    key: "electricalDutyCycle",
+    label: "Electrical duty cycle",
+    unit: "%",
+    min: 0.1,
+    max: 100,
+    step: 0.1,
+    defaultValue: 1.25,
+    group: "device",
+  },
+  {
+    kind: "number",
+    key: "interfaceImpedanceOhm",
+    label: "Gel / interface impedance",
+    unit: "Ω",
+    min: 0,
+    max: 1_000_000,
+    step: 10,
+    defaultValue: 500,
+    group: "contact",
+  },
+  {
+    kind: "number",
+    key: "postExposureS",
+    label: "Post-stimulation cooling",
+    unit: "s",
+    min: 0,
+    max: 3600,
+    step: 1,
+    defaultValue: 60,
+    group: "environment",
+  },
+  {
+    kind: "choice",
+    key: "solverDimension",
+    label: "Solver mode",
+    defaultValue: "auto",
+    group: "contact",
+    choices: [
+      { value: "auto", label: "Auto" },
+      { value: "1d", label: "1D layered" },
+      { value: "axisymmetric", label: "Axisymmetric local electrode" },
+    ],
+  },
+];
+
 const PLACEHOLDER_NOTE =
   "Not implemented. The heat path must be validated against published data before other stimulus models are added.";
 
@@ -425,9 +649,10 @@ export const BUILTIN_STIMULI: StimulusDefinition[] = [
   {
     type: "electrical",
     label: "Electrical Current",
-    description: PLACEHOLDER_NOTE,
-    implemented: false,
-    fields: [],
+    description:
+      "Layered electrical resistance, Joule heating coupled into Pennes bioheat, and strength-duration nerve activation screening.",
+    implemented: true,
+    fields: ELECTRICAL_FIELDS,
   },
   {
     type: "pressure",
@@ -450,6 +675,71 @@ export type StimulusPreset = {
 
 /** Complete, self-consistent starting points for common scenarios. */
 export const STIMULUS_PRESETS: StimulusPreset[] = [
+  {
+    id: "tens-forearm",
+    label: "TENS-style forearm pulse",
+    description: "5 mA, 250 µs rectangular pulses at 50 Hz through a 400 mm² gel electrode for one minute.",
+    stimulusType: "electrical",
+    parameters: {
+      currentMa: 5,
+      voltageV: 10,
+      pulseDurationUs: 250,
+      frequencyHz: 50,
+      durationS: 60,
+      contactAreaMm2: 400,
+      electricalDutyCycle: 1.25,
+      interfaceImpedanceOhm: 500,
+      postExposureS: 60,
+    },
+    options: {
+      waveformType: "pulsed",
+      electricalDriveMode: "current",
+      skinProfileId: "volar-forearm",
+      solverDimension: "auto",
+    },
+  },
+  {
+    id: "stable-device-pressure",
+    label: "Stable wearable pressure",
+    description: "A 12 kPa device contact held on the forearm for two hours with a 10 minute recovery observation.",
+    stimulusType: "pressure",
+    parameters: {
+      appliedPressureKpa: 12,
+      contactAreaMm2: 400,
+      holdDurationS: 7200,
+      recoveryS: 600,
+      cycles: 1,
+      frequencyHz: 1,
+      dutyCycle: 100,
+      minimumPressureFraction: 0,
+    },
+    options: {
+      loadingMode: "static",
+      waveformShape: "square",
+      skinProfileId: "volar-forearm",
+    },
+  },
+  {
+    id: "cyclic-compression-screen",
+    label: "Cyclic compression screen",
+    description: "A 50 kPa sinusoidal compression at 1 Hz for 100,000 cycles.",
+    stimulusType: "pressure",
+    parameters: {
+      appliedPressureKpa: 50,
+      contactAreaMm2: 400,
+      holdDurationS: 30,
+      recoveryS: 30,
+      cycles: 100000,
+      frequencyHz: 1,
+      dutyCycle: 50,
+      minimumPressureFraction: 0,
+    },
+    options: {
+      loadingMode: "cyclic",
+      waveformShape: "sinusoidal",
+      skinProfileId: "cortical-bone",
+    },
+  },
   {
     id: "wearable-band",
     label: "Wearable device on wrist / forearm",
@@ -631,6 +921,9 @@ export function visibleFields(
   const control = options.deviceControl ?? "ideal";
   const conductanceOverridden = (parameters.contactConductanceWM2K ?? 0) > 0;
   const cyclic = (options.loadingMode ?? "static") === "cyclic";
+  const electricalDrive = options.electricalDriveMode ?? "current";
+  const electricalWaveform = options.waveformType ?? "pulsed";
+  const timeline = (options.protocolMode ?? "constant") === "timeline";
 
   return definition.fields.filter((field) => {
     switch (field.key) {
@@ -645,7 +938,28 @@ export function visibleFields(
         return !conductanceOverridden;
       case "cycles":
       case "frequencyHz":
+      case "dutyCycle":
+      case "minimumPressureFraction":
+      case "waveformShape":
         return cyclic;
+      case "holdDurationS":
+        return !cyclic;
+      case "durationS":
+        return !timeline || definition.type !== "heat";
+      case "timelineHoldS":
+      case "timelineRampTargetC":
+      case "timelineRampS":
+      case "timelineReleaseS":
+      case "timelineRepeats":
+        return definition.type === "heat" && timeline;
+      case "currentMa":
+        return electricalDrive === "current";
+      case "voltageV":
+        return electricalDrive === "voltage";
+      case "pulseDurationUs":
+        return electricalWaveform === "pulsed";
+      case "electricalDutyCycle":
+        return electricalWaveform !== "dc";
       default:
         return true;
     }
