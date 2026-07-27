@@ -8,6 +8,16 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react()],
 
+  // Tauri serves the bundled app from a custom protocol on Windows WebView2.
+  // Relative asset paths avoid blank screens in production builds.
+  base: "./",
+
+  // @react-three/drei prebundles to a large file that Windows AV sometimes
+  // quarantines, leaving only the .map and breaking dev with 504 errors.
+  optimizeDeps: {
+    exclude: ["@react-three/drei"],
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

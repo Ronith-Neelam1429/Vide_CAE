@@ -1,4 +1,5 @@
-import { TransformControls, useGLTF } from "@react-three/drei";
+import { useGLTF } from "@react-three/drei/core/Gltf";
+import { TransformControls } from "@react-three/drei/core/TransformControls";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ThreeEvent } from "@react-three/fiber";

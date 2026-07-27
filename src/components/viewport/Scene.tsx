@@ -1,4 +1,5 @@
-import { Grid, OrbitControls } from "@react-three/drei";
+import { Grid } from "@react-three/drei/core/Grid";
+import { OrbitControls } from "@react-three/drei/core/OrbitControls";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useRef } from "react";
 import {
