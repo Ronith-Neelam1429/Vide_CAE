@@ -11,7 +11,6 @@ function formatDuration(seconds: number): string {
   return `${Number((seconds / 3600).toFixed(1))} h`;
 }
 
-/** One-line summary of a contact's configuration for the list row. */
 function describeAssignment(
   assignment: StimulusAssignment | undefined,
   regionLabel?: string | null,
@@ -20,7 +19,6 @@ function describeAssignment(
   if (assignment.stimulusType !== "heat") {
     return `${stimulusLabel(assignment.stimulusType)} · not implemented`;
   }
-
   const { temperatureC, durationS, contactAreaMm2 } = assignment.parameters;
   return [
     regionLabel ?? null,
@@ -42,9 +40,9 @@ export function ContactsPanel() {
   const removeContactPoint = useExperimentStore((s) => s.removeContactPoint);
   const clearContactPoints = useExperimentStore((s) => s.clearContactPoints);
   const snapContactToSkin = useExperimentStore((s) => s.snapContactToSkin);
-  const setTool = useExperimentStore((s) => s.setTool);
   const runSimulation = useExperimentStore((s) => s.runSimulation);
   const simulationStatus = useExperimentStore((s) => s.simulationStatus);
+  const tool = useExperimentStore((s) => s.tool);
 
   const selected = contactPoints.find((c) => c.id === selectedContactId) ?? null;
   const selectedAssignment = assignments.find(
@@ -53,64 +51,47 @@ export function ContactsPanel() {
 
   if (!design && !showBody) {
     return (
-      <div className="sidebar__empty">
-        <div className="sidebar__empty-title">Render a body or import a design</div>
-        <p className="sidebar__empty-copy">
-          Stimulus planes can be placed on the human body; contact points can
-          also be marked on an imported STL/OBJ surface.
-        </p>
-      </div>
+      <p className="design-panel__hint">
+        Show the body from the scene bar, or import a design, then place a stimulus.
+      </p>
     );
   }
 
   return (
     <div className="contacts-panel">
-      <div className="sidebar__actions">
-        <button
-          type="button"
-          className="sidebar__btn sidebar__btn--primary"
-          onClick={() => setTool("contact")}
-        >
-          Add stimulus plane
-        </button>
-        {contactPoints.length > 0 && (
-          <>
-            <button
-              type="button"
-              className="sidebar__btn sidebar__btn--primary"
-              disabled={simulationStatus === "running"}
-              onClick={() => void runSimulation()}
-            >
-              {simulationStatus === "running" ? "Solving…" : "Run simulation"}
-            </button>
-            <button
-              type="button"
-              className="sidebar__btn"
-              onClick={() => clearContactPoints()}
-            >
-              Clear all contacts
-            </button>
-          </>
+      {contactPoints.length > 0 && (
+        <div className="contacts-panel__toolbar">
+          <button
+            type="button"
+            className="sidebar__btn sidebar__btn--primary"
+            disabled={simulationStatus === "running"}
+            onClick={() => void runSimulation()}
+          >
+            {simulationStatus === "running" ? "Solving…" : "Run simulation"}
+          </button>
+          <button
+            type="button"
+            className="sidebar__btn"
+            onClick={() => clearContactPoints()}
+          >
+            Clear all
+          </button>
+        </div>
+      )}
+
+      <div className="contacts-panel__list-head">
+        Contacts ({contactPoints.length})
+        {tool === "contact" && (
+          <span className="contacts-panel__mode-pill">Click once to place</span>
         )}
       </div>
 
-      <p className="contacts-panel__help">
-        1) Click the body to place a plane · 2) Set temperature & duration · 3) Run
-        simulation. Results and the bottom terminal show what happened to the skin.
-      </p>
-
-      <div className="sidebar__section-label" style={{ paddingLeft: 0 }}>
-        Contact points ({contactPoints.length})
-      </div>
-
       {contactPoints.length === 0 ? (
-        <div className="sidebar__empty">
-          <div className="sidebar__empty-title">No contacts yet</div>
-          <p className="sidebar__empty-copy">
-            Click the mesh in the viewport to mark where the design touches
-            skin.
-          </p>
-        </div>
+        <p className="design-panel__hint">
+          {tool === "contact"
+            ? "Stimulus mode is on. Click the body once — mode turns off after you place."
+            : "Press Stimulus in the scene bar, then click the body once to add a plane."}
+        </p>
       ) : (
         <ul className="contacts-list">
           {contactPoints.map((contact) => {
@@ -127,9 +108,7 @@ export function ContactsPanel() {
                 >
                   <span
                     className="contacts-list__swatch"
-                    style={{
-                      background: active ? "#ffb020" : "#22d3ee",
-                    }}
+                    style={{ background: active ? "#ffb020" : "#22d3ee" }}
                   />
                   <span className="contacts-list__text">
                     <span className="contacts-list__name">{contact.label}</span>
@@ -149,10 +128,14 @@ export function ContactsPanel() {
           <div className="contacts-detail__header">
             <div>
               <div className="contacts-detail__title">{selected.label}</div>
-              <div className="contacts-detail__coords">
-                pos{" "}
-                {selected.position.map((n) => n.toFixed(2)).join(", ")}
-              </div>
+              {selected.anatomyRegionLabel && (
+                <div className="contacts-detail__coords">
+                  {selected.anatomyRegionLabel}
+                  {selectedAssignment?.options.skinProfileId
+                    ? ` · ${selectedAssignment.options.skinProfileId}`
+                    : ""}
+                </div>
+              )}
             </div>
             <button
               type="button"
@@ -166,49 +149,12 @@ export function ContactsPanel() {
           {selected.surface === "design" && (
             <button
               type="button"
-              className="sidebar__btn sidebar__btn--primary"
+              className="sidebar__btn"
               style={{ marginBottom: 8 }}
               onClick={() => snapContactToSkin(selected.id)}
             >
-              Snap contact to skin
+              Snap to skin
             </button>
-          )}
-
-          {selectedAssignment && (
-            <div className="contacts-detail__type">
-              {stimulusLabel(selectedAssignment.stimulusType)}
-            </div>
-          )}
-
-          {selected.surface === "body" && selected.anatomyRegionLabel && (
-            <div className="contacts-site-banner">
-              <div className="contacts-site-banner__title">
-                Body site → tissue model
-              </div>
-              <div className="contacts-site-banner__value">
-                {selected.anatomyRegionLabel}
-                {selectedAssignment?.options.skinProfileId
-                  ? ` · ${selectedAssignment.options.skinProfileId}`
-                  : ""}
-              </div>
-              {selected.anatomyMeshName && (
-                <div className="contacts-site-banner__mesh">
-                  Hit: {selected.anatomyMeshName.replace(/\.\d+$/, "")}
-                </div>
-              )}
-              {selected.anatomyProfileReason && (
-                <div className="contacts-site-banner__reason">
-                  {selected.anatomyProfileReason}
-                  {selected.anatomyProfileConfidence
-                    ? ` (${selected.anatomyProfileConfidence} confidence)`
-                    : ""}
-                </div>
-              )}
-              <p className="contacts-site-banner__note">
-                Heat uses this site’s layered tissue table, not the GLB mesh
-                materials. Override under Environment → Skin site if needed.
-              </p>
-            </div>
           )}
 
           <StimulusForm contactPointId={selected.id} />

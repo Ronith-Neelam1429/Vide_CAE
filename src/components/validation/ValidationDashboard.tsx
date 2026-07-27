@@ -179,45 +179,30 @@ function CaseCard({ entry }: { entry: ValidationCaseResult }) {
   );
 }
 
-export function ValidationDashboard() {
-  const open = useExperimentStore((s) => s.showValidationDashboard);
+/** Embedded panel for the bottom workspace. */
+export function ComparePanel() {
   const status = useExperimentStore((s) => s.validationStatus);
   const error = useExperimentStore((s) => s.validationError);
   const report = useExperimentStore((s) => s.validationResult);
-  const close = useExperimentStore((s) => s.closeValidationDashboard);
   const runValidationSuite = useExperimentStore((s) => s.runValidationSuite);
-  const simulationResult = useExperimentStore((s) => s.simulationResult);
   const [showAudit, setShowAudit] = useState(false);
-
-  if (!open) return null;
-
   const literatureCases = report?.cases.filter((entry) => !entry.synthetic) ?? [];
 
   return (
-    <div className="validation-dashboard" role="dialog" aria-modal="true">
-      <div className="validation-dashboard__panel">
-        <header className="validation-dashboard__header">
-          <div>
-            <h2>Compare to published studies</h2>
-            <p>
-              Optional check: re-run the solver on fixed paper protocols and overlay
-              lab measurements when we have them. This is not your workspace contact
-              result — that lives in Results and the bottom Simulation output panel.
-            </p>
-          </div>
-          <button type="button" className="sidebar__btn" onClick={close}>
-            Close
-          </button>
-        </header>
-
-        <div className="validation-dashboard__actions">
+    <div className="docked-validation">
+      <header className="docked-validation__header">
+        <div>
+          <h2>Compare to paper</h2>
+          <p>Locked literature protocols — separate from your workspace contact run.</p>
+        </div>
+        <div className="docked-validation__actions">
           <button
             type="button"
             className="sidebar__btn sidebar__btn--primary"
             disabled={status === "running"}
             onClick={() => void runValidationSuite({ includeSyntheticFixtures: false })}
           >
-            {status === "running" ? "Running…" : "Re-run paper protocols"}
+            {status === "running" ? "Running…" : report ? "Re-run" : "Run comparison"}
           </button>
           {report && (
             <button
@@ -225,7 +210,7 @@ export function ValidationDashboard() {
               className="sidebar__btn"
               onClick={() => exportValidationReport(report)}
             >
-              Export report
+              Export
             </button>
           )}
           <button
@@ -233,89 +218,54 @@ export function ValidationDashboard() {
             className="sidebar__btn"
             onClick={() => setShowAudit((value) => !value)}
           >
-            {showAudit ? "Hide data sources" : "Show data sources"}
+            {showAudit ? "Hide sources" : "Sources"}
           </button>
         </div>
+      </header>
 
-        {simulationResult && (
-          <div className="validation-banner is-info">
-            Your latest workspace run ({simulationResult.contacts.length} contact
-            {simulationResult.contacts.length === 1 ? "" : "s"}) is separate. Charts
-            below are standard paper cases used for accuracy checks.
-          </div>
-        )}
-
-        <div className="validation-banner is-warn">
-          Plain English: we do not yet have open lab CSV files of skin temperature
-          under the heater for these papers, so you will see the model’s predicted
-          curve only. Metrics stay blank until measured data is added — that is
-          honest, not a failed run.
+      {error && (
+        <div className="sidebar__error" role="alert">
+          {error}
         </div>
+      )}
+      {status === "running" && (
+        <div className="validation-banner is-info">Solving locked paper protocols…</div>
+      )}
 
-        {error && (
-          <div className="sidebar__error" role="alert">
-            {error}
-          </div>
-        )}
-
-        {status === "running" && (
-          <div className="validation-banner is-info">
-            Solving locked calibration and hold-out protocols…
-          </div>
-        )}
-
-        {report && (
-          <>
-            <section className="validation-summary">
-              <div>
-                <span>Solver</span>
-                <strong>{report.modelVersion}</strong>
-              </div>
-              <div>
-                <span>Tuned to lab data?</span>
-                <strong>{report.calibrated ? "Yes" : "Not yet"}</strong>
-              </div>
-              <div>
-                <span>Paper cases</span>
-                <strong>{literatureCases.length}</strong>
-              </div>
-              <div>
-                <span>What this means</span>
-                <strong>Side-by-side only</strong>
-              </div>
-            </section>
-
-            <p className="validation-disclosure">
-              No pass/fail badge. If measured data is missing, “Unavailable” metrics are
-              expected. Your body placement does not change these locked paper cases.
-            </p>
-
-            {report.lockedParameters.length > 0 && (
-              <div className="validation-locked">
-                <strong>Suite-level locked parameters</strong>
-                <ul>
-                  {report.lockedParameters.map((parameter) => (
-                    <li key={`${parameter.key}-${parameter.source}`}>
-                      {parameter.key} = {parameter.value.toPrecision(4)} {parameter.unit}{" "}
-                      <span>({parameter.source})</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <div className="validation-grid">
-              {literatureCases.map((entry) => (
-                <CaseCard key={entry.caseId} entry={entry} />
-              ))}
+      {report && (
+        <>
+          <section className="validation-summary">
+            <div>
+              <span>Solver</span>
+              <strong>{report.modelVersion}</strong>
             </div>
-
-            {showAudit && (
-              <pre className="validation-audit">{report.sourceAudit}</pre>
-            )}
-          </>
-        )}
-      </div>
+            <div>
+              <span>Paper cases</span>
+              <strong>{literatureCases.length}</strong>
+            </div>
+            <div>
+              <span>Claim</span>
+              <strong>Comparison only</strong>
+            </div>
+          </section>
+          <div className="validation-grid">
+            {literatureCases.map((entry) => (
+              <CaseCard key={entry.caseId} entry={entry} />
+            ))}
+          </div>
+          {showAudit && <pre className="validation-audit">{report.sourceAudit}</pre>}
+        </>
+      )}
+      {!report && status === "idle" && (
+        <p className="docked-validation__empty">
+          Run locked paper protocols to compare model predictions.
+        </p>
+      )}
     </div>
   );
+}
+
+/** @deprecated Prefer ComparePanel in the bottom workspace. */
+export function ValidationDashboard() {
+  return null;
 }

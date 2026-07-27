@@ -1,9 +1,7 @@
 import { useEffect } from "react";
+import { BottomWorkspace } from "./components/layout/BottomWorkspace";
+import { SceneBar } from "./components/layout/SceneBar";
 import { Sidebar } from "./components/layout/Sidebar";
-import { SimulationTerminal } from "./components/layout/SimulationTerminal";
-import { TopBar } from "./components/layout/TopBar";
-import { ValidationDashboard } from "./components/validation/ValidationDashboard";
-import { ProofLabDashboard } from "./components/validation/ProofLabDashboard";
 import { Viewport } from "./components/viewport/Viewport";
 import { useExperimentStore } from "./store/experimentStore";
 import "./styles/theme.css";
@@ -55,27 +53,22 @@ function useToolHotkeys() {
 
 function App() {
   useToolHotkeys();
-  const sidebarTab = useExperimentStore((state) => state.sidebarTab);
   const loadCatalog = useExperimentStore((state) => state.loadCatalog);
   const loadAssistStatus = useExperimentStore((state) => state.loadAssistStatus);
 
-  // Pull the tissue and material tables from the solver once at startup so the
-  // pickers offer exactly what the backend supports.
   useEffect(() => {
     void loadCatalog();
     void loadAssistStatus();
   }, [loadCatalog, loadAssistStatus]);
 
   return (
-    <div className={`app-shell${sidebarTab === "results" ? " app-shell--results" : ""}`}>
-      <TopBar />
+    <div className="app-shell">
+      <SceneBar />
       <div className="app-shell__body">
         <Sidebar />
         <Viewport />
       </div>
-      <SimulationTerminal />
-      <ValidationDashboard />
-      <ProofLabDashboard />
+      <BottomWorkspace />
     </div>
   );
 }

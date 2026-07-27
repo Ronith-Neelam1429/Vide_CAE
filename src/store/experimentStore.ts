@@ -40,7 +40,8 @@ export type Vec3 = [number, number, number];
 export type CadKind = "stl" | "obj";
 export type TransformMode = "translate" | "rotate" | "scale";
 export type ToolMode = "orbit" | "contact" | TransformMode;
-export type SidebarTab = "design" | "contacts" | "results";
+export type SidebarTab = "design" | "contacts";
+export type BottomPanelTab = "output" | "results" | "proof-lab" | "compare";
 
 export type DesignAsset = {
   id: string;
@@ -94,6 +95,10 @@ type ExperimentState = {
   transformEpoch: number;
   tool: ToolMode;
   sidebarTab: SidebarTab;
+  sidebarWidthPx: number;
+  bottomPanelTab: BottomPanelTab;
+  bottomPanelExpanded: boolean;
+  bottomPanelHeightPx: number;
   contactPoints: ContactPoint[];
   assignments: StimulusAssignment[];
   selectedContactId: string | null;
@@ -131,6 +136,10 @@ type ExperimentState = {
   isPlaying: boolean;
 
   setTool: (tool: ToolMode) => void;
+  setSidebarWidthPx: (widthPx: number) => void;
+  setBottomPanelTab: (tab: BottomPanelTab) => void;
+  setBottomPanelExpanded: (expanded: boolean) => void;
+  setBottomPanelHeightPx: (heightPx: number) => void;
   toggleAnatomy: () => void;
   toggleShowBody: () => void;
   setAnatomyTransform: (partial: {
@@ -246,6 +255,10 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
   transformEpoch: 0,
   tool: "translate",
   sidebarTab: "design",
+  sidebarWidthPx: 300,
+  bottomPanelTab: "output",
+  bottomPanelExpanded: false,
+  bottomPanelHeightPx: 280,
   contactPoints: [],
   assignments: [],
   selectedContactId: null,
@@ -316,6 +329,13 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
   setPlaybackTime: (playbackTimeS) => set({ playbackTimeS }),
   setPlaying: (isPlaying) => set({ isPlaying }),
   setSidebarTab: (sidebarTab) => set({ sidebarTab }),
+  setSidebarWidthPx: (sidebarWidthPx) =>
+    set({ sidebarWidthPx: Math.min(480, Math.max(220, sidebarWidthPx)) }),
+  setBottomPanelTab: (bottomPanelTab) =>
+    set({ bottomPanelTab, bottomPanelExpanded: true }),
+  setBottomPanelExpanded: (bottomPanelExpanded) => set({ bottomPanelExpanded }),
+  setBottomPanelHeightPx: (bottomPanelHeightPx) =>
+    set({ bottomPanelHeightPx: Math.min(560, Math.max(160, bottomPanelHeightPx)) }),
   setImporting: (isImporting) => set({ isImporting }),
   setImportError: (importError) => set({ importError }),
 
@@ -430,7 +450,8 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
         ],
         selectedContactId: id,
         sidebarTab: "contacts" as const,
-        tool: "contact" as const,
+        // One-shot placement: exit stimulus mode after each new contact.
+        tool: "translate" as const,
         position: pose?.position ?? state.position,
         rotation: pose?.rotation ?? state.rotation,
         transformEpoch: pose ? state.transformEpoch + 1 : state.transformEpoch,
@@ -684,10 +705,20 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
     }
   },
 
-  openValidationDashboard: () => set({ showValidationDashboard: true }),
+  openValidationDashboard: () =>
+    set({
+      showValidationDashboard: true,
+      bottomPanelTab: "compare",
+      bottomPanelExpanded: true,
+    }),
   closeValidationDashboard: () => set({ showValidationDashboard: false }),
 
-  openProofLab: () => set({ showProofLab: true }),
+  openProofLab: () =>
+    set({
+      showProofLab: true,
+      bottomPanelTab: "proof-lab",
+      bottomPanelExpanded: true,
+    }),
   closeProofLab: () => set({ showProofLab: false }),
 
   runProofLab: async () => {
@@ -695,6 +726,8 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       proofLabStatus: "running",
       proofLabError: null,
       showProofLab: true,
+      bottomPanelTab: "proof-lab",
+      bottomPanelExpanded: true,
     });
     try {
       const settings = SOLVER_PRESETS[get().solverPreset].settings;
@@ -731,6 +764,8 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       validationStatus: "running",
       validationError: null,
       showValidationDashboard: true,
+      bottomPanelTab: "compare",
+      bottomPanelExpanded: true,
     });
     try {
       const settings = SOLVER_PRESETS[get().solverPreset].settings;
@@ -748,6 +783,8 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
         validationStatus: "complete",
         validationError: null,
         showValidationDashboard: true,
+        bottomPanelTab: "compare",
+        bottomPanelExpanded: true,
       });
     } catch (error) {
       set({
@@ -759,6 +796,8 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
               ? error.message
               : "Validation suite could not be completed.",
         showValidationDashboard: true,
+        bottomPanelTab: "compare",
+        bottomPanelExpanded: true,
       });
     }
   },
@@ -789,7 +828,8 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       mechanicsResult: null,
       playbackTimeS: 0,
       isPlaying: false,
-      sidebarTab: "results",
+      bottomPanelTab: "results",
+      bottomPanelExpanded: true,
     });
 
     const settings = SOLVER_PRESETS[state.solverPreset].settings;
@@ -808,9 +848,8 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
         mechanicsResult,
         simulationStatus: "complete",
         simulationError: null,
-        sidebarTab: "results",
-        // Keep the literature validation overlay opt-in — the workspace run
-        // readout belongs in Results + the bottom terminal.
+        bottomPanelTab: "results",
+        bottomPanelExpanded: true,
         showValidationDashboard: false,
       });
     } catch (error) {

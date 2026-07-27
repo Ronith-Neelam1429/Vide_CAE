@@ -755,12 +755,6 @@ export function ResultsPanel() {
   const contacts = useExperimentStore((s) => s.contactPoints);
   const solverPreset = useExperimentStore((s) => s.solverPreset);
   const setSolverPreset = useExperimentStore((s) => s.setSolverPreset);
-  const openProofLab = useExperimentStore((s) => s.openProofLab);
-  const runProofLab = useExperimentStore((s) => s.runProofLab);
-  const proofLabStatus = useExperimentStore((s) => s.proofLabStatus);
-  const openValidationDashboard = useExperimentStore((s) => s.openValidationDashboard);
-  const runValidationSuite = useExperimentStore((s) => s.runValidationSuite);
-  const validationStatus = useExperimentStore((s) => s.validationStatus);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const hasThermal = !!result && result.contacts.length > 0;
@@ -852,25 +846,9 @@ export function ResultsPanel() {
       )}
 
       {!hasThermal && !hasMech && status !== "running" && !error && (
-        <div className="sidebar__empty">
-          <div className="sidebar__empty-title">No simulation results</div>
-          <p className="sidebar__empty-copy">
-            Assign a Heat or Pressure stimulus to your contacts and run. Cold and
-            electrical models are not implemented yet.
-          </p>
-          <button
-            type="button"
-            className="sidebar__btn"
-            disabled={proofLabStatus === "running"}
-            onClick={() => {
-              openProofLab();
-              if (proofLabStatus === "idle") {
-                void runProofLab();
-              }
-            }}
-          >
-            Proof lab (blind paper test)
-          </button>
+        <div className="results-empty">
+          <strong>No run yet</strong>
+          <span>Configure a contact in Contacts, then press Run. Charts appear here.</span>
         </div>
       )}
 
@@ -952,9 +930,7 @@ export function ResultsPanel() {
                 </div>
               </dl>
               <p className="results-run-summary__note">
-                The chart below is <strong>this contact’s simulated temperature</strong> over
-                time — surface (blue), shallow tissue (orange), deeper tissue (green). Full
-                readout is also in the bottom Simulation output panel.
+                Chart = this contact’s simulated temperature vs time (surface · shallow · deep).
               </p>
             </div>
           )}
@@ -976,47 +952,21 @@ export function ResultsPanel() {
               className="results-panel__export"
               onClick={() => exportTimeSeriesCsv(result)}
             >
-              Export time series
+              Time series
             </button>
             <button
               type="button"
               className="results-panel__export"
               onClick={() => exportDepthProfileCsv(result)}
             >
-              Export depth
+              Depth
             </button>
             <button
               type="button"
               className="results-panel__export"
               onClick={() => exportRunManifest(result)}
             >
-              Export manifest
-            </button>
-            <button
-              type="button"
-              className="results-panel__export"
-              disabled={proofLabStatus === "running"}
-              onClick={() => {
-                openProofLab();
-                if (proofLabStatus === "idle") {
-                  void runProofLab();
-                }
-              }}
-            >
-              Proof lab (blind paper test)
-            </button>
-            <button
-              type="button"
-              className="results-panel__export"
-              disabled={validationStatus === "running"}
-              onClick={() => {
-                openValidationDashboard();
-                if (validationStatus === "idle") {
-                  void runValidationSuite({ includeSyntheticFixtures: false });
-                }
-              }}
-            >
-              Compare to papers (optional)
+              Manifest
             </button>
           </div>
 

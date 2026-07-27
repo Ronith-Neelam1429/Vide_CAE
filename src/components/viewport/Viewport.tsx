@@ -1,8 +1,18 @@
 import { Canvas } from "@react-three/fiber";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { useExperimentStore } from "../../store/experimentStore";
+import { useExperimentStore, type Vec3 } from "../../store/experimentStore";
 import { AnatomyAttributionPanel } from "./AnatomyAttributionPanel";
 import { Scene } from "./Scene";
+import { ViewportTools } from "./ViewportTools";
+
+function formatVec(v: Vec3, digits = 2): string {
+  return v.map((n) => n.toFixed(digits)).join(", ");
+}
+
+function toDegrees(radians: Vec3): Vec3 {
+  const k = 180 / Math.PI;
+  return [radians[0] * k, radians[1] * k, radians[2] * k];
+}
 
 export function Viewport() {
   const paneRef = useRef<HTMLElement>(null);
@@ -12,7 +22,14 @@ export function Viewport() {
   const showAnatomy = useExperimentStore((s) => s.showAnatomy);
   const showBody = useExperimentStore((s) => s.showBody);
   const toggleAnatomy = useExperimentStore((s) => s.toggleAnatomy);
+  const anatomyPosition = useExperimentStore((s) => s.anatomyPosition);
+  const anatomyRotation = useExperimentStore((s) => s.anatomyRotation);
+  const anatomyScale = useExperimentStore((s) => s.anatomyScale);
+  const designPosition = useExperimentStore((s) => s.position);
+  const designRotation = useExperimentStore((s) => s.rotation);
+  const designScale = useExperimentStore((s) => s.scale);
   const [showAttribution, setShowAttribution] = useState(false);
+  const [showPosition, setShowPosition] = useState(false);
 
   useEffect(() => {
     const el = paneRef.current;
@@ -25,6 +42,8 @@ export function Viewport() {
     el.addEventListener("contextmenu", blockContextMenu);
     return () => el.removeEventListener("contextmenu", blockContextMenu);
   }, []);
+
+  const canShowPosition = showBody || design !== null;
 
   return (
     <section ref={paneRef} className="viewport-pane" aria-label="3D viewport">
@@ -45,48 +64,94 @@ export function Viewport() {
         </Canvas>
       </div>
 
+      <ViewportTools />
+
       <div className="viewport-overlay">
         <div className="viewport-overlay__coords">
           {design
             ? `${design.fileName}${contactCount ? ` · ${contactCount} CP` : ""}`
             : showBody
               ? "Z-Anatomy full body · bones & muscles"
-              : "Empty scene · render human body from sidebar"}
+              : "Empty scene · show Body from the scene bar"}
         </div>
 
-        {showBody && (
-          <button
-            type="button"
-            className={`viewport-toggle${showAnatomy ? " is-active" : ""}`}
-            onClick={toggleAnatomy}
-          >
-            {showAnatomy ? "Hide anatomy" : "Show anatomy"}
-          </button>
-        )}
-        {showBody && (
-          <button
-            type="button"
-            className="viewport-toggle viewport-toggle--muted"
-            onClick={() => setShowAttribution((open) => !open)}
-          >
-            Anatomy credit
-          </button>
-        )}
-        <AnatomyAttributionPanel
-          open={showAttribution}
-          onClose={() => setShowAttribution(false)}
-        />
+        <div className="viewport-overlay__actions">
+          {showBody && (
+            <button
+              type="button"
+              className={`viewport-toggle${showAnatomy ? " is-active" : ""}`}
+              onClick={toggleAnatomy}
+            >
+              {showAnatomy ? "Hide anatomy" : "Show anatomy"}
+            </button>
+          )}
+          {showBody && (
+            <button
+              type="button"
+              className={`viewport-toggle viewport-toggle--muted${
+                showAttribution ? " is-active" : ""
+              }`}
+              onClick={() => {
+                setShowAttribution((open) => !open);
+                setShowPosition(false);
+              }}
+            >
+              Anatomy credit
+            </button>
+          )}
+          {canShowPosition && (
+            <div className="viewport-position">
+              <button
+                type="button"
+                className={`viewport-toggle viewport-toggle--muted${
+                  showPosition ? " is-active" : ""
+                }`}
+                onClick={() => {
+                  setShowPosition((open) => !open);
+                  setShowAttribution(false);
+                }}
+              >
+                Position
+              </button>
+              {showPosition && (
+                <div className="viewport-position__panel">
+                  {showBody && (
+                    <div className="viewport-position__block">
+                      <span className="viewport-position__label">Body</span>
+                      <pre className="viewport-position__values">
+                        {`Pos  ${formatVec(anatomyPosition)}
+Rot° ${formatVec(toDegrees(anatomyRotation), 1)}
+Scale ${formatVec(anatomyScale)}`}
+                      </pre>
+                    </div>
+                  )}
+                  {design && (
+                    <div className="viewport-position__block">
+                      <span className="viewport-position__label">Design</span>
+                      <pre className="viewport-position__values">
+                        {`Pos  ${formatVec(designPosition)}
+Rot° ${formatVec(toDegrees(designRotation), 1)}
+Scale ${formatVec(designScale)}`}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          <AnatomyAttributionPanel
+            open={showAttribution}
+            onClose={() => setShowAttribution(false)}
+          />
+        </div>
         <div className="viewport-overlay__hint">
-          {design && tool === "contact" ? (
+          {tool === "contact" ? (
             <>
               <span className="viewport-chip">
-                <strong>Click mesh</strong> add contact
+                <strong>Click once</strong> place stimulus
               </span>
               <span className="viewport-chip">
-                <strong>Click marker</strong> select
-              </span>
-              <span className="viewport-chip">
-                <strong>Empty drag</strong> orbit
+                <strong>Then</strong> back to move
               </span>
             </>
           ) : design && tool === "translate" ? (

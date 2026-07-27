@@ -186,9 +186,6 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
   const assignment = useExperimentStore((s) =>
     s.assignments.find((a) => a.contactPointId === contactPointId),
   );
-  const contact = useExperimentStore((s) =>
-    s.contactPoints.find((entry) => entry.id === contactPointId),
-  );
   const catalog = useExperimentStore((s) => s.catalog);
   const contactCount = useExperimentStore((s) => s.contactPoints.length);
   const setStimulusType = useExperimentStore((s) => s.setStimulusType);
@@ -205,12 +202,11 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
   const [protocolSuggestion, setProtocolSuggestion] =
     useState<ProtocolSuggestion | null>(null);
   const [protocolSearching, setProtocolSearching] = useState(false);
-  const bodySiteDetected = contact?.surface === "body" && !!contact.anatomyRegionLabel;
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     essential: true,
-    contact: true,
+    contact: false,
     device: false,
-    environment: bodySiteDetected,
+    environment: false,
   });
 
   if (!assignment) {

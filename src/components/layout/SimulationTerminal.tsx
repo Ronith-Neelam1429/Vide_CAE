@@ -127,7 +127,7 @@ export function SimulationTerminal() {
   const selectedLabel = useExperimentStore((s) =>
     s.contactPoints.find((c) => c.id === s.selectedContactId)?.label,
   );
-  const setSidebarTab = useExperimentStore((s) => s.setSidebarTab);
+  const setBottomPanelTab = useExperimentStore((s) => s.setBottomPanelTab);
   const [expanded, setExpanded] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
 
@@ -219,7 +219,7 @@ export function SimulationTerminal() {
             <button
               type="button"
               className="sim-terminal__link"
-              onClick={() => setSidebarTab("results")}
+              onClick={() => setBottomPanelTab("results")}
             >
               Open Results
             </button>

@@ -222,62 +222,58 @@ function CasePanel({ entry }: { entry: ProofLabCaseResult }) {
   );
 }
 
-export function ProofLabDashboard() {
-  const open = useExperimentStore((s) => s.showProofLab);
+/** Embedded panel for the bottom workspace (no modal chrome). */
+export function ProofLabPanel() {
   const status = useExperimentStore((s) => s.proofLabStatus);
   const error = useExperimentStore((s) => s.proofLabError);
   const report = useExperimentStore((s) => s.proofLabResult);
-  const close = useExperimentStore((s) => s.closeProofLab);
   const run = useExperimentStore((s) => s.runProofLab);
 
-  if (!open) return null;
-
   return (
-    <div className="validation-dashboard" role="dialog" aria-modal="true">
-      <div className="validation-dashboard__panel proof-lab">
-        <header className="validation-dashboard__header">
-          <div>
-            <h2 id="proof-lab-title">Proof lab · blind paper comparison</h2>
-            <p className="validation-panel__subtitle">
-              Temporary validation area. Same metrics as literature validation — measured vs
-              predicted — with ground truth withheld from the solver.
-            </p>
-          </div>
-          <button type="button" className="sidebar__btn" onClick={close}>
-            Close
-          </button>
-        </header>
-
-        <div className="validation-dashboard__actions">
-          <button
-            type="button"
-            className="sidebar__btn sidebar__btn--primary"
-            onClick={() => void run()}
-            disabled={status === "running"}
-          >
-            {status === "running" ? "Running…" : "Re-run blind comparison"}
-          </button>
+    <div className="docked-validation proof-lab">
+      <header className="docked-validation__header">
+        <div>
+          <h2>Proof lab</h2>
+          <p>Blind paper comparison — solver never sees measured data during the run.</p>
         </div>
+        <button
+          type="button"
+          className="sidebar__btn sidebar__btn--primary"
+          onClick={() => void run()}
+          disabled={status === "running"}
+        >
+          {status === "running" ? "Running…" : report ? "Re-run" : "Run comparison"}
+        </button>
+      </header>
 
-        {status === "error" && error && (
-          <div className="validation-banner is-warn">{error}</div>
-        )}
-
-        {status === "running" && (
-          <div className="validation-banner is-info">
-            Simulating from protocol inputs, then comparing to extracted paper data…
-          </div>
-        )}
-
-        {report && (
-          <>
-            <p className="validation-disclosure">{report.disclosure}</p>
-            {report.cases.map((entry) => (
-              <CasePanel key={entry.caseId} entry={entry} />
-            ))}
-          </>
-        )}
-      </div>
+      {status === "error" && error && (
+        <div className="validation-banner is-warn">{error}</div>
+      )}
+      {status === "running" && (
+        <div className="validation-banner is-info">
+          Simulating from protocol inputs, then comparing…
+        </div>
+      )}
+      {report && (
+        <>
+          <p className="validation-disclosure">{report.disclosure}</p>
+          {report.cases.map((entry) => (
+            <CasePanel key={entry.caseId} entry={entry} />
+          ))}
+        </>
+      )}
+      {!report && status === "idle" && (
+        <p className="docked-validation__empty">
+          Run a blind comparison against locked literature protocols.
+        </p>
+      )}
     </div>
   );
+}
+
+/** @deprecated Prefer ProofLabPanel in the bottom workspace. */
+export function ProofLabDashboard() {
+  const open = useExperimentStore((s) => s.showProofLab);
+  if (!open) return null;
+  return null;
 }
