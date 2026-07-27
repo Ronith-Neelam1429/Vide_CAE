@@ -29,8 +29,13 @@ export function SceneBar() {
   const tool = useExperimentStore((s) => s.tool);
   const setTool = useExperimentStore((s) => s.setTool);
   const setSidebarTab = useExperimentStore((s) => s.setSidebarTab);
+  const contactCount = useExperimentStore((s) => s.contactPoints.length);
+  const simulationStatus = useExperimentStore((s) => s.simulationStatus);
+  const runSimulation = useExperimentStore((s) => s.runSimulation);
   const canPlace = showBody || design !== null;
   const placing = tool === "contact";
+  const canRun = contactCount > 0 && simulationStatus !== "running";
+  const running = simulationStatus === "running";
 
   return (
     <div className="scene-bar" role="toolbar" aria-label="Scene objects">
@@ -91,7 +96,9 @@ export function SceneBar() {
       </button>
       <button
         type="button"
-        className={`scene-bar__action${placing ? " scene-bar__action--primary is-active" : ""}`}
+        className={`scene-bar__action scene-bar__action--stimulus${
+          placing ? " is-active" : ""
+        }`}
         disabled={!canPlace}
         aria-pressed={placing}
         title={
@@ -109,6 +116,23 @@ export function SceneBar() {
         }}
       >
         Stimulus
+      </button>
+      <button
+        type="button"
+        className={`scene-bar__action scene-bar__action--run${
+          contactCount > 0 ? " is-ready" : ""
+        }${running ? " is-running" : ""}`}
+        disabled={!canRun}
+        title={
+          contactCount === 0
+            ? "Place a stimulus plane first"
+            : running
+              ? "Simulation running…"
+              : "Run simulation for placed contacts"
+        }
+        onClick={() => void runSimulation()}
+      >
+        {running ? "Solving…" : "Run"}
       </button>
     </div>
   );

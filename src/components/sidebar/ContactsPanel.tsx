@@ -40,8 +40,6 @@ export function ContactsPanel() {
   const removeContactPoint = useExperimentStore((s) => s.removeContactPoint);
   const clearContactPoints = useExperimentStore((s) => s.clearContactPoints);
   const snapContactToSkin = useExperimentStore((s) => s.snapContactToSkin);
-  const runSimulation = useExperimentStore((s) => s.runSimulation);
-  const simulationStatus = useExperimentStore((s) => s.simulationStatus);
   const tool = useExperimentStore((s) => s.tool);
 
   const selected = contactPoints.find((c) => c.id === selectedContactId) ?? null;
@@ -59,38 +57,29 @@ export function ContactsPanel() {
 
   return (
     <div className="contacts-panel">
-      {contactPoints.length > 0 && (
-        <div className="contacts-panel__toolbar">
-          <button
-            type="button"
-            className="sidebar__btn sidebar__btn--primary"
-            disabled={simulationStatus === "running"}
-            onClick={() => void runSimulation()}
-          >
-            {simulationStatus === "running" ? "Solving…" : "Run simulation"}
-          </button>
-          <button
-            type="button"
-            className="sidebar__btn"
-            onClick={() => clearContactPoints()}
-          >
-            Clear all
-          </button>
-        </div>
-      )}
-
       <div className="contacts-panel__list-head">
         Contacts ({contactPoints.length})
-        {tool === "contact" && (
-          <span className="contacts-panel__mode-pill">Click once to place</span>
-        )}
+        <div className="contacts-panel__list-actions">
+          {tool === "contact" && (
+            <span className="contacts-panel__mode-pill">Click once to place</span>
+          )}
+          {contactPoints.length > 0 && (
+            <button
+              type="button"
+              className="sidebar__btn sidebar__btn--compact"
+              onClick={() => clearContactPoints()}
+            >
+              Clear all
+            </button>
+          )}
+        </div>
       </div>
 
       {contactPoints.length === 0 ? (
         <p className="design-panel__hint">
           {tool === "contact"
             ? "Stimulus mode is on. Click the body once — mode turns off after you place."
-            : "Press Stimulus in the scene bar, then click the body once to add a plane."}
+            : "Press Stimulus in the scene bar, click the body once, then press Run."}
         </p>
       ) : (
         <ul className="contacts-list">
