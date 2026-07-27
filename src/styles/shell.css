@@ -1024,6 +1024,39 @@
   gap: 8px;
 }
 
+.stimulus-contact-state {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.stimulus-contact-state__choices {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+
+.stimulus-contact-state__choice {
+  min-height: 28px;
+  border: 1px solid var(--vide-border);
+  border-radius: var(--vide-radius-sm);
+  background: var(--vide-bg-panel-raised);
+  color: var(--vide-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.stimulus-contact-state__choice:hover {
+  border-color: #68737f;
+  color: var(--vide-text);
+}
+
+.stimulus-contact-state__choice.is-active {
+  border-color: #81a894;
+  background: rgba(103, 157, 123, 0.16);
+  color: #b8e4c7;
+}
+
 .stimulus-form__field {
   display: flex;
   flex-direction: column;
@@ -2424,6 +2457,78 @@
   color: var(--vide-text-muted);
   font-size: 10px;
   line-height: 1.5;
+}
+
+.result-fail-modes {
+  gap: 8px;
+}
+
+.result-fail-modes__item strong {
+  color: var(--vide-text);
+}
+
+.result-fail-modes__item.is-critical strong {
+  color: #ff9b94;
+}
+
+.result-fail-modes__item.is-warning strong {
+  color: #f7c777;
+}
+
+.proof-lab-run-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+  border: 1px solid var(--vide-border);
+  border-left: 3px solid #6c7780;
+  border-radius: var(--vide-radius-sm);
+  background: var(--vide-bg-panel-raised);
+}
+
+.proof-lab-run-status.is-running {
+  border-left-color: #20b8ed;
+}
+
+.proof-lab-run-status.is-complete {
+  border-left-color: #6dc78a;
+}
+
+.proof-lab-run-status.is-error {
+  border-left-color: #e5766d;
+}
+
+.proof-lab-run-status > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.proof-lab-run-status strong {
+  font-size: 11px;
+}
+
+.proof-lab-run-status span {
+  color: var(--vide-text-muted);
+  font-size: 10px;
+}
+
+.proof-lab-run-status button {
+  flex: none;
+  border: 1px solid var(--vide-border);
+  border-radius: var(--vide-radius-sm);
+  background: transparent;
+  color: var(--vide-text-secondary);
+  font-size: 10px;
+  padding: 5px 7px;
+  cursor: pointer;
+}
+
+.proof-lab-run-status button:hover {
+  color: var(--vide-text);
+  border-color: #68737f;
 }
 
 .result-provenance {

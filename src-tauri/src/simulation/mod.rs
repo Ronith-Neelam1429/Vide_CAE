@@ -304,6 +304,8 @@ pub struct ResolvedInputs {
     pub interface_thickness_um: f64,
     pub ambient_temperature_c: f64,
     pub baseline_skin_temperature_c: f64,
+    /// `static` or `local-hyperemia`.
+    pub perfusion_model: &'static str,
     pub device_control: &'static str,
     /// `None` for an ideal device, which by definition has unlimited capacity.
     pub device_areal_heat_capacity_j_per_m2_k: Option<f64>,
@@ -372,6 +374,13 @@ pub struct ThermalSample {
     pub dermal_base_temperature_c: f64,
     pub device_temperature_c: f64,
     pub damage_omega: f64,
+    /// Pennes perfusion coefficient at the basal reporting depth, relative to
+    /// the selected profile's baseline value.
+    pub perfusion_fold: f64,
+    /// Heat delivered by a finite regulated controller. Ideal/passive devices
+    /// report zero because no finite controller is modelled.
+    pub controller_flux_w_per_m2: f64,
+    pub controller_saturated: bool,
     pub surface_flux_w_per_m2: f64,
     pub phase: &'static str,
 }
@@ -612,6 +621,9 @@ pub(crate) fn solve_case(
             dermal_base_temperature_c: peak_dermal,
             device_temperature_c: initial_device_c,
             damage_omega: 0.0,
+            perfusion_fold: state.perfusion_fold_at_depth(basal_depth),
+            controller_flux_w_per_m2: 0.0,
+            controller_saturated: false,
             surface_flux_w_per_m2: 0.0,
             phase: if case.pre_exposure_s > 0.0 {
                 "baseline"
@@ -655,6 +667,9 @@ pub(crate) fn solve_case(
                 dermal_base_temperature_c: dermal,
                 device_temperature_c: state.device_temperature_c,
                 damage_omega: state.mesh.interpolate(&state.omega, basal_depth),
+                perfusion_fold: state.perfusion_fold_at_depth(basal_depth),
+                controller_flux_w_per_m2: state.controller_flux_w_per_m2,
+                controller_saturated: state.controller_saturated,
                 surface_flux_w_per_m2: flux,
                 phase,
             });
@@ -1657,6 +1672,10 @@ fn simulate_heat_contact(
             interface_thickness_um: interface_thickness_m * 1e6,
             ambient_temperature_c: case.ambient_c,
             baseline_skin_temperature_c: case.baseline_skin_c,
+            perfusion_model: match case.perfusion_model {
+                PerfusionModel::Static => "static",
+                PerfusionModel::LocalHyperemia { .. } => "local-hyperemia",
+            },
             device_control: control_label,
             device_areal_heat_capacity_j_per_m2_k: device_areal_heat_capacity,
             contact_conductance_w_per_m2_k: network.total_w_per_m2_k,
@@ -2323,6 +2342,9 @@ mod tests {
             dermal_base_temperature_c: 43.0,
             device_temperature_c: 43.0,
             damage_omega: 0.0,
+            perfusion_fold: 1.0,
+            controller_flux_w_per_m2: 0.0,
+            controller_saturated: false,
             surface_flux_w_per_m2: 0.0,
             phase: "exposure",
         };

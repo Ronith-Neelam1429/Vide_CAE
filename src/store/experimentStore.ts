@@ -21,6 +21,7 @@ import {
 import { runMechanics, type MechanicsResult } from "../lib/mechanics";
 import { literatureCaseById } from "../lib/literatureCases";
 import { computeProtocolMatch } from "../lib/proofLabProtocol";
+import { contactStateById, type ContactStateId } from "../lib/contactStates";
 import {
   analyzeProofLabWithAssist,
   fetchAssistStatus,
@@ -204,6 +205,8 @@ type ExperimentState = {
     key: string,
     value: string,
   ) => void;
+  /** Apply a named interface state without exposing raw thermal-contact inputs. */
+  applyContactState: (contactPointId: string, stateId: ContactStateId) => void;
   /** Fill every field of one contact from a named scenario. */
   applyLiteratureCase: (contactPointId: string, caseId: string) => void;
   /** Apply an assist suggestion (Azure or rules) onto a contact. */
@@ -607,6 +610,37 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
         return { ...assignment, options, parameters };
       }),
     })),
+
+  applyContactState: (contactPointId, stateId) =>
+    set((state) => {
+      const contactState = contactStateById(stateId);
+      if (!contactState) return state;
+
+      return {
+        assignments: state.assignments.map((assignment) =>
+          assignment.contactPointId === contactPointId
+            ? {
+                ...assignment,
+                parameters: {
+                  ...assignment.parameters,
+                  ...contactState.parameters,
+                  // A measured value should remain authoritative.
+                  ...(assignment.parameters.contactConductanceWM2K &&
+                  assignment.parameters.contactConductanceWM2K > 0
+                    ? {}
+                    : { contactConductanceWM2K: 0 }),
+                },
+                options: {
+                  ...assignment.options,
+                  ...contactState.options,
+                  contactState: contactState.id,
+                },
+                literatureCaseId: null,
+              }
+            : assignment,
+        ),
+      };
+    }),
 
   applyLiteratureCase: (contactPointId, caseId) =>
     set((state) => {

@@ -347,6 +347,10 @@ pub struct SolverState {
     pub peak_temperature_c: Vec<f64>,
     pub energy: EnergyLedger,
     pub elapsed_s: f64,
+    /// Controller heat input per area from the most recent accepted step.
+    pub controller_flux_w_per_m2: f64,
+    /// True when the regulated controller used its configured power ceiling.
+    pub controller_saturated: bool,
     initial_temperature_c: Vec<f64>,
     /// Baseline Pennes coefficients frozen at mesh build; scaled each step.
     baseline_perfusion_coefficient: Vec<f64>,
@@ -428,6 +432,8 @@ impl SolverState {
             omega: vec![0.0; count],
             energy: EnergyLedger::default(),
             elapsed_s: 0.0,
+            controller_flux_w_per_m2: 0.0,
+            controller_saturated: false,
             baseline_perfusion_coefficient,
             perfusion_model,
             mesh,
@@ -443,6 +449,42 @@ impl SolverState {
                 .multiplier(self.temperature_c[index]);
             self.mesh.cells[index].perfusion_coefficient =
                 self.baseline_perfusion_coefficient[index] * multiplier;
+        }
+    }
+
+    /// Local Pennes perfusion relative to the profile baseline at a reporting
+    /// depth. Avascular layers report 1× so the chart remains interpretable.
+    pub fn perfusion_fold_at_depth(&self, depth_m: f64) -> f64 {
+        let cells = &self.mesh.cells;
+        let (left, right, weight) = if depth_m <= cells[0].center_m {
+            (0, 0, 0.0)
+        } else {
+            cells
+                .windows(2)
+                .enumerate()
+                .find_map(|(index, pair)| {
+                    if depth_m <= pair[1].center_m {
+                        let weight =
+                            (depth_m - pair[0].center_m) / (pair[1].center_m - pair[0].center_m);
+                        Some((index, index + 1, weight))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_else(|| {
+                    let last = cells.len() - 1;
+                    (last, last, 0.0)
+                })
+        };
+        let current = cells[left].perfusion_coefficient * (1.0 - weight)
+            + cells[right].perfusion_coefficient * weight;
+        let baseline = self.baseline_perfusion_coefficient[left] * (1.0 - weight)
+            + self.baseline_perfusion_coefficient[right] * weight;
+
+        if baseline > 1.0e-12 {
+            (current / baseline).max(0.0)
+        } else {
+            1.0
         }
     }
 
@@ -467,6 +509,8 @@ impl SolverState {
         surface: SurfaceCoupling,
         device: Option<DeviceModel>,
     ) -> f64 {
+        self.controller_flux_w_per_m2 = 0.0;
+        self.controller_saturated = false;
         let count = self.mesh.cell_count();
         let dynamic_device = matches!(surface, SurfaceCoupling::Device { .. });
         let offset = usize::from(dynamic_device);
@@ -516,6 +560,7 @@ impl SolverState {
                     let demand = gain_w_per_m2_k * (device.setpoint_c - self.device_temperature_c);
                     if demand >= max_flux_w_per_m2 {
                         control_flux = max_flux_w_per_m2;
+                        self.controller_saturated = true;
                     } else if demand > 0.0 {
                         control_conductance = gain_w_per_m2_k;
                     }
@@ -612,6 +657,23 @@ impl SolverState {
         }
         self.temperature_c
             .copy_from_slice(&solution[offset..offset + count]);
+
+        if let (true, Some(device)) = (dynamic_device, device) {
+            self.controller_flux_w_per_m2 = match device.control {
+                DeviceControl::Passive => 0.0,
+                DeviceControl::Regulated {
+                    gain_w_per_m2_k,
+                    max_flux_w_per_m2,
+                } => {
+                    if self.controller_saturated {
+                        max_flux_w_per_m2
+                    } else {
+                        (gain_w_per_m2_k * (device.setpoint_c - self.device_temperature_c))
+                            .max(0.0)
+                    }
+                }
+            };
+        }
 
         // Energy accounting reuses the same time weighting as the solve, so the
         // ledger closes to round-off rather than to truncation error.
@@ -799,6 +861,27 @@ mod tests {
         let at_42 = model.multiplier(42.0);
         assert!(at_42 > 7.0 && at_42 <= 8.8, "fold at 42 °C was {at_42}");
         assert!(model.multiplier(39.0) > 4.0);
+    }
+
+    #[test]
+    fn reported_perfusion_fold_tracks_local_hyperemia() {
+        let mut layer = uniform_layer(0.002);
+        layer.perfusion_per_s = 0.001;
+        let mesh = build_mesh(&[layer], 0.0001, 0.0005, 1.1, BloodProperties::default(), 37.0);
+        let initial = vec![42.0; mesh.cell_count()];
+        let mut state = SolverState::with_perfusion(
+            mesh,
+            initial,
+            42.0,
+            PerfusionModel::LocalHyperemia {
+                onset_c: 33.0,
+                half_max_c: 39.0,
+                max_fold: 9.0,
+                steepness_c: 1.2,
+            },
+        );
+        state.apply_perfusion_model();
+        assert!(state.perfusion_fold_at_depth(0.001) > 7.0);
     }
 
     #[test]

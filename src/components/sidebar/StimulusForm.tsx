@@ -1,5 +1,10 @@
 import { useMemo, useState } from "react";
 import type { ProtocolSuggestion } from "../../lib/assist";
+import {
+  CONTACT_STATES,
+  contactStateForOptions,
+  type ContactStateId,
+} from "../../lib/contactStates";
 import { listLiteratureCases } from "../../lib/literatureCases";
 import type { ModelCatalog, SensitivityEntry } from "../../lib/simulation";
 import {
@@ -219,6 +224,37 @@ function HeatTimelinePreview({
   );
 }
 
+function ContactStatePicker({
+  value,
+  onChange,
+}: {
+  value: ContactStateId;
+  onChange: (state: ContactStateId) => void;
+}) {
+  const selected = CONTACT_STATES.find((state) => state.id === value);
+
+  return (
+    <div className="stimulus-contact-state">
+      <span className="stimulus-form__label">Contact state</span>
+      <div className="stimulus-contact-state__choices" role="radiogroup" aria-label="Contact state">
+        {CONTACT_STATES.map((state) => (
+          <button
+            key={state.id}
+            type="button"
+            role="radio"
+            aria-checked={value === state.id}
+            className={`stimulus-contact-state__choice${value === state.id ? " is-active" : ""}`}
+            onClick={() => onChange(state.id)}
+          >
+            {state.shortLabel}
+          </button>
+        ))}
+      </div>
+      {selected && <span className="stimulus-form__help">{selected.description}</span>}
+    </div>
+  );
+}
+
 export function StimulusForm({ contactPointId }: StimulusFormProps) {
   const assignment = useExperimentStore((s) =>
     s.assignments.find((a) => a.contactPointId === contactPointId),
@@ -228,6 +264,7 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
   const setStimulusType = useExperimentStore((s) => s.setStimulusType);
   const setStimulusParameter = useExperimentStore((s) => s.setStimulusParameter);
   const setStimulusOption = useExperimentStore((s) => s.setStimulusOption);
+  const applyContactState = useExperimentStore((s) => s.applyContactState);
   const applyLiteratureCase = useExperimentStore((s) => s.applyLiteratureCase);
   const applyProtocolSuggestion = useExperimentStore((s) => s.applyProtocolSuggestion);
   const suggestProtocolFromText = useExperimentStore((s) => s.suggestProtocolFromText);
@@ -262,6 +299,7 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
   const electricalDrive = assignment.options.electricalDriveMode ?? "current";
   const electricalWaveform = assignment.options.waveformType ?? "pulsed";
   const heatTimeline = assignment.options.protocolMode === "timeline";
+  const contactState = contactStateForOptions(assignment.options);
   const pressurePrimaryKeys = new Set(
     cyclic
       ? [
@@ -424,6 +462,13 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
 
       {definition && !definition.implemented && (
         <div className="stimulus-form__notice">{definition.description}</div>
+      )}
+
+      {assignment.stimulusType === "heat" && (
+        <ContactStatePicker
+          value={contactState}
+          onChange={(state) => applyContactState(contactPointId, state)}
+        />
       )}
 
       <div className="stimulus-form__primary">{primaryFields.map((f) => renderField(f, false))}</div>

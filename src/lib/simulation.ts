@@ -112,6 +112,7 @@ export type ResolvedInputs = {
   interfaceThicknessUm: number;
   ambientTemperatureC: number;
   baselineSkinTemperatureC: number;
+  perfusionModel: string;
   deviceControl: string;
   deviceArealHeatCapacityJPerM2K: number | null;
   contactConductanceWPerM2K: number;
@@ -175,6 +176,12 @@ export type ThermalSample = {
   dermalBaseTemperatureC: number;
   deviceTemperatureC: number;
   damageOmega: number;
+  /** Blood-flow / baseline at the basal reporting depth. */
+  perfusionFold: number;
+  /** Controller heat input; zero for ideal and passive devices. */
+  controllerFluxWPerM2: number;
+  /** Whether a regulated controller hit its configured power ceiling. */
+  controllerSaturated: boolean;
   surfaceFluxWPerM2: number;
   phase: "baseline" | "exposure" | "cooling";
 };

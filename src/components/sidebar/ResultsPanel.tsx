@@ -20,6 +20,7 @@ import {
   timeToPeakBasalS,
   verdictSentence,
 } from "../../lib/verdict";
+import { detectFailModes } from "../../lib/failModes";
 import { useExperimentStore } from "../../store/experimentStore";
 import { MechanicsPanel } from "./MechanicsPanel";
 import { ElectricalPanel } from "./ElectricalPanel";
@@ -246,6 +247,93 @@ function DamageChart({ contact }: { contact: HeatContactResult }) {
       <p className="results-chart__caption">
         Henriques damage integral accumulates during contact and while skin cools afterward.
         Ω = 1.0 is the irreversible-injury threshold.
+      </p>
+    </div>
+  );
+}
+
+function PerfusionChart({ contact }: { contact: HeatContactResult }) {
+  const peakFold = Math.max(...contact.series.map((sample) => sample.perfusionFold), 1);
+  const staticPerfusion = contact.inputs.perfusionModel === "Static";
+
+  return (
+    <div className="results-chart" aria-label={`${contact.label} blood-flow response over time`}>
+      <ResponsiveContainer width="100%" height={260}>
+        <LineChart data={contact.series} margin={{ top: 12, right: 10, bottom: 2, left: -8 }}>
+          <CartesianGrid stroke="#3d3d3d" strokeDasharray="3 3" />
+          {contact.inputs.postExposureS > 0 && (
+            <ReferenceArea
+              x1={0}
+              x2={contact.inputs.exposureS}
+              fill="#4fbf86"
+              fillOpacity={0.06}
+            />
+          )}
+          <XAxis dataKey="timeS" type="number" unit=" s" {...AXIS} />
+          <YAxis domain={[0, Math.max(1.2, peakFold * 1.12)]} unit="×" width={52} {...AXIS} />
+          <ReferenceLine
+            y={1}
+            stroke="#777"
+            strokeDasharray="4 4"
+            label={{ value: "baseline", fill: "#aaa", fontSize: 10, position: "insideTopRight" }}
+          />
+          <Tooltip content={<ChartTooltip unit="s" />} />
+          <Line
+            name="Blood flow"
+            type="monotone"
+            dataKey="perfusionFold"
+            stroke="#4fbf86"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+      <div className="results-chart__legend">
+        <span>
+          <i style={{ background: "#4fbf86" }} />
+          Perfusion at basal layer
+        </span>
+      </div>
+      <p className="results-chart__caption">
+        {staticPerfusion
+          ? "Static perfusion holds blood flow at its baseline value."
+          : `Local heating raised basal-layer blood flow to ${peakFold.toFixed(1)}× baseline, increasing heat removal during the hold.`}
+      </p>
+    </div>
+  );
+}
+
+function ControllerChart({ contact }: { contact: HeatContactResult }) {
+  const peakFlux = Math.max(
+    ...contact.series.map((sample) => sample.controllerFluxWPerM2),
+    1,
+  );
+  const saturated = contact.series.some((sample) => sample.controllerSaturated);
+
+  return (
+    <div className="results-chart" aria-label={`${contact.label} controller power over time`}>
+      <ResponsiveContainer width="100%" height={260}>
+        <LineChart data={contact.series} margin={{ top: 12, right: 10, bottom: 2, left: -8 }}>
+          <CartesianGrid stroke="#3d3d3d" strokeDasharray="3 3" />
+          <XAxis dataKey="timeS" type="number" unit=" s" {...AXIS} />
+          <YAxis domain={[0, peakFlux * 1.12]} unit=" W/m²" width={70} {...AXIS} />
+          <Tooltip content={<ChartTooltip unit="s" />} />
+          <Line
+            name="Delivered controller flux"
+            type="stepAfter"
+            dataKey="controllerFluxWPerM2"
+            stroke="#d5a55e"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+      <p className="results-chart__caption">
+        {saturated
+          ? "The controller reached its configured power ceiling. Device temperature and tissue heating are lower than an ideal setpoint-held device."
+          : "Delivered controller power stayed below the configured limit."}
       </p>
     </div>
   );
@@ -530,7 +618,24 @@ function PhysicsDetail({ contact }: { contact: HeatContactResult }) {
 }
 
 function ContactResult({ contact }: { contact: HeatContactResult }) {
-  const [chart, setChart] = useState<"temperature" | "damage" | "depth">("temperature");
+  const assignment = useExperimentStore((state) =>
+    state.assignments.find((entry) => entry.contactPointId === contact.contactPointId),
+  );
+  const contactPoint = useExperimentStore((state) =>
+    state.contactPoints.find((entry) => entry.id === contact.contactPointId),
+  );
+  const [chart, setChart] = useState<
+    "temperature" | "damage" | "perfusion" | "controller" | "depth"
+  >(
+    "temperature",
+  );
+  const failModes = useMemo(
+    () => detectFailModes(contact, assignment, contactPoint),
+    [assignment, contact, contactPoint],
+  );
+  const hasFiniteController = contact.series.some(
+    (sample) => sample.controllerFluxWPerM2 > 0 || sample.controllerSaturated,
+  );
 
   return (
     <article className="result-story">
@@ -554,6 +659,22 @@ function ContactResult({ contact }: { contact: HeatContactResult }) {
           </button>
           <button
             type="button"
+            className={`results-chart-tab${chart === "perfusion" ? " is-active" : ""}`}
+            onClick={() => setChart("perfusion")}
+          >
+            Blood flow
+          </button>
+          {hasFiniteController && (
+            <button
+              type="button"
+              className={`results-chart-tab${chart === "controller" ? " is-active" : ""}`}
+              onClick={() => setChart("controller")}
+            >
+              Controller power
+            </button>
+          )}
+          <button
+            type="button"
             className={`results-chart-tab${chart === "depth" ? " is-active" : ""}`}
             onClick={() => setChart("depth")}
           >
@@ -562,11 +683,68 @@ function ContactResult({ contact }: { contact: HeatContactResult }) {
         </div>
         {chart === "temperature" && <TimeChart contact={contact} />}
         {chart === "damage" && <DamageChart contact={contact} />}
+        {chart === "perfusion" && <PerfusionChart contact={contact} />}
+        {chart === "controller" && hasFiniteController && <ControllerChart contact={contact} />}
         {chart === "depth" && <DepthChart contact={contact} />}
       </section>
 
+      {failModes.length > 0 && (
+        <section className="physics-detail result-fail-modes">
+          <div className="physics-detail__header">
+            <strong>Run checks</strong>
+            <span>{failModes.length} assumption{failModes.length === 1 ? "" : "s"} to review</span>
+          </div>
+          <ul className="result-warnings">
+            {failModes.map((mode) => (
+              <li key={mode.id} className={`result-fail-modes__item is-${mode.severity}`}>
+                <strong>{mode.title}</strong> — {mode.detail}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <PhysicsDetail contact={contact} />
     </article>
+  );
+}
+
+function ProofLabRunStatus() {
+  const status = useExperimentStore((state) => state.proofLabStatus);
+  const error = useExperimentStore((state) => state.proofLabError);
+  const result = useExperimentStore((state) => state.proofLabResult);
+  const selectedCases = useExperimentStore((state) => state.proofLabSelectedCaseIds.length);
+  const setTab = useExperimentStore((state) => state.setBottomPanelTab);
+  const setExpanded = useExperimentStore((state) => state.setBottomPanelExpanded);
+
+  if (selectedCases === 0) return null;
+
+  const completedCases = result?.cases.length ?? 0;
+  const message =
+    status === "running"
+      ? "Comparing this run with selected published protocols…"
+      : status === "complete"
+        ? `${completedCases} selected ${completedCases === 1 ? "study" : "studies"} compared`
+        : status === "error"
+          ? error ?? "Proof Lab comparison could not be completed."
+          : "Comparison will start after the thermal run finishes.";
+
+  return (
+    <section className={`proof-lab-run-status is-${status}`}>
+      <div>
+        <strong>Proof Lab</strong>
+        <span>{message}</span>
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          setTab("proof-lab");
+          setExpanded(true);
+        }}
+      >
+        Open comparison
+      </button>
+    </section>
   );
 }
 
@@ -908,6 +1086,7 @@ export function ResultsPanel() {
 
       {hasThermal && view === "thermal" && result && (
         <>
+          <ProofLabRunStatus />
           {thermalContacts.length > 1 && (
             <MultiContactComparison
               contacts={thermalContacts}

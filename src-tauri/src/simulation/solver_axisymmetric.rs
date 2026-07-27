@@ -46,6 +46,9 @@ fn corrected_sample(
         ),
         device_temperature_c: sample.device_temperature_c,
         damage_omega: sample.damage_omega * factor,
+        perfusion_fold: sample.perfusion_fold,
+        controller_flux_w_per_m2: sample.controller_flux_w_per_m2,
+        controller_saturated: sample.controller_saturated,
         surface_flux_w_per_m2: sample.surface_flux_w_per_m2 * factor,
         phase: sample.phase,
     }
