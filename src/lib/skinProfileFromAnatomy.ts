@@ -190,15 +190,11 @@ export function resolveSkinProfileFromAnatomy(
       includesAny(name, [
         "radius",
         "ulna",
-        "humerus",
         "brachioradialis",
         "flexor carpi",
         "extensor carpi",
         "pronator",
         "supinator",
-        "biceps brachii",
-        "brachialis",
-        "triceps brachii",
         "anconeus",
         "palmaris longus",
         "flexor digitorum",
@@ -208,9 +204,27 @@ export function resolveSkinProfileFromAnatomy(
     ) {
       return {
         skinProfileId: "volar-forearm",
-        regionLabel: "Forearm / upper arm",
+        regionLabel: "Forearm",
         confidence: "high",
         reason: `Matched arm/forearm mesh “${base}”`,
+        meshBaseName: base,
+      };
+    }
+
+    if (
+      includesAny(name, [
+        "humerus",
+        "biceps brachii",
+        "brachialis",
+        "triceps brachii",
+        "deltoid",
+      ])
+    ) {
+      return {
+        skinProfileId: "volar-forearm",
+        regionLabel: "Upper arm",
+        confidence: "high",
+        reason: `Matched upper-arm mesh “${base}”; using the closest available arm profile`,
         meshBaseName: base,
       };
     }
@@ -227,7 +241,7 @@ export function resolveSkinProfileFromAnatomy(
     ) {
       return {
         skinProfileId: "quadriceps",
-        regionLabel: "Anterior quadriceps",
+        regionLabel: "Front of thigh",
         confidence: "high",
         reason: `Matched quadriceps mesh “${base}”`,
         meshBaseName: base,
@@ -237,24 +251,37 @@ export function resolveSkinProfileFromAnatomy(
     if (
       includesAny(name, [
         "femur",
-        "fibula",
         "hamstring",
         "biceps femoris",
-        "gastrocnemius",
-        "soleus",
         "gracilis",
         "adductor",
         "gluteus",
         "iliotibial",
+      ])
+    ) {
+      return {
+        skinProfileId: "quadriceps",
+        regionLabel: "Thigh",
+        confidence: "medium",
+        reason: `Matched thigh mesh “${base}”; using the closest available thigh profile`,
+        meshBaseName: base,
+      };
+    }
+
+    if (
+      includesAny(name, [
+        "fibula",
+        "gastrocnemius",
+        "soleus",
         "peroneus",
         "fibularis",
       ])
     ) {
       return {
-        skinProfileId: "upper-back",
-        regionLabel: "Thigh / calf (thick soft tissue)",
+        skinProfileId: "quadriceps",
+        regionLabel: "Calf",
         confidence: "medium",
-        reason: `Matched leg soft-tissue mesh “${base}”; using thick soft-tissue profile`,
+        reason: `Matched calf mesh “${base}”; using the closest available leg profile`,
         meshBaseName: base,
       };
     }
@@ -285,10 +312,10 @@ export function resolveSkinProfileFromAnatomy(
 
   if (limb === "leftLeg" || limb === "rightLeg") {
     return {
-      skinProfileId: "cortical-bone",
+      skinProfileId: "quadriceps",
       regionLabel: limb === "leftLeg" ? "Left leg" : "Right leg",
       confidence: "low",
-      reason: "Limb fallback: leg → subcutaneous-bone profile (shin-like)",
+      reason: "Limb fallback: leg → thigh profile; select Shin manually for bony anterior sites",
       meshBaseName: base,
     };
   }

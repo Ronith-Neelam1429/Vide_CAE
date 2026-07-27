@@ -12,7 +12,6 @@ import {
 } from "../../store/experimentStore";
 import { ResultsPanel } from "../sidebar/ResultsPanel";
 import { ProofLabPanel } from "../validation/ProofLabDashboard";
-import { ComparePanel } from "../validation/ValidationDashboard";
 
 type TerminalLine = {
   kind: "info" | "ok" | "warn" | "bad" | "dim" | "label";
@@ -128,7 +127,6 @@ const TABS: Array<{ id: BottomPanelTab; label: string }> = [
   { id: "output", label: "Output" },
   { id: "results", label: "Results" },
   { id: "proof-lab", label: "Proof lab" },
-  { id: "compare", label: "Compare to paper" },
 ];
 
 export function BottomWorkspace() {
@@ -148,8 +146,6 @@ export function BottomWorkspace() {
   );
   const loadProofLabLibrary = useExperimentStore((s) => s.loadProofLabLibrary);
   const proofLabLibraryStatus = useExperimentStore((s) => s.proofLabLibraryStatus);
-  const runValidationSuite = useExperimentStore((s) => s.runValidationSuite);
-  const validationStatus = useExperimentStore((s) => s.validationStatus);
   const dragRef = useRef<{ startY: number; startH: number } | null>(null);
 
   useEffect(() => {
@@ -196,9 +192,6 @@ export function BottomWorkspace() {
     setTab(next);
     if (next === "proof-lab" && proofLabLibraryStatus === "idle") {
       void loadProofLabLibrary();
-    }
-    if (next === "compare" && validationStatus === "idle") {
-      void runValidationSuite({ includeSyntheticFixtures: false });
     }
   };
 
@@ -288,11 +281,6 @@ export function BottomWorkspace() {
           {tab === "proof-lab" && (
             <div className="bottom-workspace__scroll">
               <ProofLabPanel />
-            </div>
-          )}
-          {tab === "compare" && (
-            <div className="bottom-workspace__scroll">
-              <ComparePanel />
             </div>
           )}
         </div>

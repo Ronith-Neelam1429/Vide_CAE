@@ -47,7 +47,7 @@ export type CadKind = "stl" | "obj";
 export type TransformMode = "translate" | "rotate" | "scale";
 export type ToolMode = "orbit" | "contact" | TransformMode;
 export type SidebarTab = "contacts";
-export type BottomPanelTab = "output" | "results" | "proof-lab" | "compare";
+export type BottomPanelTab = "output" | "results" | "proof-lab";
 
 export type DesignAsset = {
   id: string;
@@ -233,7 +233,7 @@ type ExperimentState = {
   }) => Promise<void>;
   openValidationDashboard: () => void;
   closeValidationDashboard: () => void;
-  runProofLab: () => Promise<void>;
+  runProofLab: (options?: { focus?: boolean }) => Promise<void>;
   loadProofLabLibrary: () => Promise<void>;
   toggleProofLabCase: (caseId: string) => void;
   setProofLabSelectedCases: (caseIds: string[]) => void;
@@ -748,7 +748,7 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
   openValidationDashboard: () =>
     set({
       showValidationDashboard: true,
-      bottomPanelTab: "compare",
+      bottomPanelTab: "proof-lab",
       bottomPanelExpanded: true,
     }),
   closeValidationDashboard: () => set({ showValidationDashboard: false }),
@@ -804,19 +804,28 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
 
   clearProofLabCases: () => set({ proofLabSelectedCaseIds: [] }),
 
-  runProofLab: async () => {
+  runProofLab: async (options) => {
+    const focus = options?.focus ?? true;
+    const focusUi = focus
+      ? {
+          showProofLab: true as const,
+          bottomPanelTab: "proof-lab" as const,
+          bottomPanelExpanded: true as const,
+        }
+      : {};
+
     const state = get();
     const settings = SOLVER_PRESETS[state.solverPreset].settings;
     const selectedCaseIds = state.proofLabSelectedCaseIds;
 
     if (selectedCaseIds.length === 0) {
-      set({
-        proofLabStatus: "error",
-        proofLabError: "Select at least one study from the research library.",
-        showProofLab: true,
-        bottomPanelTab: "proof-lab",
-        bottomPanelExpanded: true,
-      });
+      if (focus) {
+        set({
+          proofLabStatus: "error",
+          proofLabError: "Select at least one study from the research library.",
+          ...focusUi,
+        });
+      }
       return;
     }
 
@@ -829,36 +838,36 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
     if (needsHeat) {
       const contactId = state.selectedContactId ?? state.contactPoints[0]?.id ?? null;
       if (!contactId) {
-        set({
-          proofLabStatus: "error",
-          proofLabError: "Add a contact point before running heat studies.",
-          showProofLab: true,
-          bottomPanelTab: "proof-lab",
-          bottomPanelExpanded: true,
-        });
+        if (focus) {
+          set({
+            proofLabStatus: "error",
+            proofLabError: "Add a contact point before running heat studies.",
+            ...focusUi,
+          });
+        }
         return;
       }
       const assignment = state.assignments.find((a) => a.contactPointId === contactId);
       const contactPoint = state.contactPoints.find((c) => c.id === contactId);
       if (!assignment || !contactPoint) {
-        set({
-          proofLabStatus: "error",
-          proofLabError: "Select a contact with stimulus settings in the sidebar.",
-          showProofLab: true,
-          bottomPanelTab: "proof-lab",
-          bottomPanelExpanded: true,
-        });
+        if (focus) {
+          set({
+            proofLabStatus: "error",
+            proofLabError: "Select a contact with stimulus settings in the sidebar.",
+            ...focusUi,
+          });
+        }
         return;
       }
       if (assignment.stimulusType !== "heat") {
-        set({
-          proofLabStatus: "error",
-          proofLabError:
-            "Selected heat studies require a heat contact — set stimulus type to heat.",
-          showProofLab: true,
-          bottomPanelTab: "proof-lab",
-          bottomPanelExpanded: true,
-        });
+        if (focus) {
+          set({
+            proofLabStatus: "error",
+            proofLabError:
+              "Selected heat studies require a heat contact — set stimulus type to heat.",
+            ...focusUi,
+          });
+        }
         return;
       }
       contactPayload = {
@@ -876,9 +885,7 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       proofLabAnalysis: null,
       proofLabAnalysisStatus: "idle",
       proofLabAnalysisError: null,
-      showProofLab: true,
-      bottomPanelTab: "proof-lab",
-      bottomPanelExpanded: true,
+      ...focusUi,
     });
     try {
       const proofLabResult = await runProofLab({
@@ -895,7 +902,7 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
         proofLabResult,
         proofLabStatus: "complete",
         proofLabError: null,
-        showProofLab: true,
+        ...(focus ? { showProofLab: true } : {}),
       });
       void get().analyzeProofLab();
     } catch (error) {
@@ -907,7 +914,7 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
             : error instanceof Error
               ? error.message
               : "Proof-lab comparison could not be completed.",
-        showProofLab: true,
+        ...(focus ? { showProofLab: true } : {}),
       });
     }
   },
@@ -986,8 +993,6 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
       validationStatus: "running",
       validationError: null,
       showValidationDashboard: true,
-      bottomPanelTab: "compare",
-      bottomPanelExpanded: true,
     });
     try {
       const settings = SOLVER_PRESETS[get().solverPreset].settings;
@@ -1005,8 +1010,6 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
         validationStatus: "complete",
         validationError: null,
         showValidationDashboard: true,
-        bottomPanelTab: "compare",
-        bottomPanelExpanded: true,
       });
     } catch (error) {
       set({
@@ -1018,8 +1021,6 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
               ? error.message
               : "Validation suite could not be completed.",
         showValidationDashboard: true,
-        bottomPanelTab: "compare",
-        bottomPanelExpanded: true,
       });
     }
   },
@@ -1077,6 +1078,15 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
         bottomPanelExpanded: true,
         showValidationDashboard: false,
       });
+
+      void (async () => {
+        if (get().proofLabLibraryStatus === "idle") {
+          await get().loadProofLabLibrary();
+        }
+        if (get().proofLabSelectedCaseIds.length > 0) {
+          await get().runProofLab({ focus: false });
+        }
+      })();
     } catch (error) {
       set({
         simulationStatus: "error",

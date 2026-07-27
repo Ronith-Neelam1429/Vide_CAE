@@ -141,6 +141,14 @@ export function ContactsPanel() {
               {selectedSite && (
                 <div className="contacts-detail__coords">{selectedSite}</div>
               )}
+              {selected.surface === "body" && selected.anatomyRegionLabel && (
+                <div className="contacts-detail__region" title={selected.anatomyProfileReason ?? ""}>
+                  Body region: {selected.anatomyRegionLabel}
+                  {selected.anatomyProfileConfidence
+                    ? ` · ${selected.anatomyProfileConfidence} confidence`
+                    : ""}
+                </div>
+              )}
             </div>
             <button
               type="button"

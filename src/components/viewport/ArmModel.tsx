@@ -269,7 +269,7 @@ export function ArmModel() {
       <group ref={pivotRef} name="AnatomyPivot">
         <primitive object={model} />
         <ActiveHeatSpot gradient={gradient} anchor={forearmOverlay} />
-        <BodyStimulusPlanes />
+        <BodyStimulusPlanes anatomyRoot={model} />
 
         {/* Invisible pick volume — GLTF child meshes don't receive R3F events reliably. */}
         <mesh
