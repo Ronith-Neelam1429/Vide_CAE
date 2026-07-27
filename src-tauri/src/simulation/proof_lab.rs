@@ -809,8 +809,8 @@ fn site_label(manifest: &ProofLabCaseManifest) -> String {
         .get("skinProfileId")
         .map(String::as_str)
     {
-        Some("volar-forearm") => "Volar forearm".into(),
-        Some("dorsal-forearm") => "Dorsal forearm".into(),
+        Some("volar-forearm") => "Forearm".into(),
+        Some("dorsal-forearm") => "Forearm".into(),
         Some("palm") => "Palm".into(),
         Some("sole") => "Sole".into(),
         _ => "Skin contact site".into(),

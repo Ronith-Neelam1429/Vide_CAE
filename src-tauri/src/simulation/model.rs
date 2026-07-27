@@ -464,8 +464,8 @@ const CELL_CITATIONS: &[&str] = &[
 pub static SKIN_PROFILES: &[SkinProfile] = &[
     SkinProfile {
         id: "volar-forearm",
-        label: "Volar forearm",
-        site: "Volar (inner) forearm",
+        label: "Forearm",
+        site: "Inner forearm",
         description:
             "Thin epidermis and moderate dermis. The site most thermal-injury threshold work was performed on.",
         shallow_marker_label: SKIN_SHALLOW_MARKER,
@@ -482,8 +482,8 @@ pub static SKIN_PROFILES: &[SkinProfile] = &[
     },
     SkinProfile {
         id: "quadriceps",
-        label: "Anterior quadriceps",
-        site: "Vastus medialis / anterior thigh",
+        label: "Thigh",
+        site: "Front of thigh",
         description:
             "Thinner subcutaneous fat over active muscle. Used for large water-perfused thermode protocols (Petrofsky 2011).",
         shallow_marker_label: SKIN_SHALLOW_MARKER,
@@ -500,8 +500,8 @@ pub static SKIN_PROFILES: &[SkinProfile] = &[
     },
     SkinProfile {
         id: "palm",
-        label: "Palm (glabrous)",
-        site: "Palmar hand",
+        label: "Palm",
+        site: "Palm of hand",
         description:
             "Thick stratum corneum raises the surface thermal resistance and delays deep heating.",
         shallow_marker_label: SKIN_SHALLOW_MARKER,
@@ -519,7 +519,7 @@ pub static SKIN_PROFILES: &[SkinProfile] = &[
     SkinProfile {
         id: "fingertip",
         label: "Fingertip",
-        site: "Distal finger pad",
+        site: "Finger pad",
         description:
             "Thick epidermis over shallow tissue. Small contact patches here are the least likely to satisfy the 1D assumption.",
         shallow_marker_label: SKIN_SHALLOW_MARKER,
@@ -537,7 +537,7 @@ pub static SKIN_PROFILES: &[SkinProfile] = &[
     SkinProfile {
         id: "upper-back",
         label: "Upper back",
-        site: "Upper back / scapular",
+        site: "Upper back",
         description: "Thick dermis with a substantial fat layer beneath.",
         shallow_marker_label: SKIN_SHALLOW_MARKER,
         deep_marker_label: SKIN_DEEP_MARKER,
@@ -554,7 +554,7 @@ pub static SKIN_PROFILES: &[SkinProfile] = &[
     SkinProfile {
         id: "abdomen",
         label: "Abdomen",
-        site: "Anterior abdominal wall",
+        site: "Abdominal wall",
         description: "Deep subcutaneous fat strongly insulates the deeper tissue.",
         shallow_marker_label: SKIN_SHALLOW_MARKER,
         deep_marker_label: SKIN_DEEP_MARKER,
@@ -570,8 +570,8 @@ pub static SKIN_PROFILES: &[SkinProfile] = &[
     },
     SkinProfile {
         id: "cortical-bone",
-        label: "Bone (subcutaneous, shin)",
-        site: "Anterior tibia (bone just under thin skin)",
+        label: "Shin",
+        site: "Shin over bone",
         description:
             "Thin skin directly over cortical bone, then trabecular bone and marrow. A site where a device heats bone with almost no soft-tissue buffer.",
         shallow_marker_label: "Skin–bone interface",
@@ -588,13 +588,13 @@ pub static SKIN_PROFILES: &[SkinProfile] = &[
     },
     SkinProfile {
         id: "scalp-hair",
-        label: "Scalp with hair",
-        site: "Haired scalp over skull",
+        label: "Scalp",
+        site: "Scalp under hair",
         description:
             "An insulating hair canopy over vascular scalp skin, galea and skull. The hair canopy is modelled as an effective keratin-and-air medium, so it strongly buffers surface heat.",
         shallow_marker_label: "Scalp surface (under hair)",
         deep_marker_label: "Scalp base (sub-galeal plane)",
-        category: "Skin / adnexa",
+        category: "Skin",
         baseline_skin_c: prop(34.5, 33.0, 36.0, "degC", BASELINE_SOURCE),
         core_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
         blood_c: prop(37.0, 36.5, 37.5, "degC", BASELINE_SOURCE),
@@ -606,8 +606,8 @@ pub static SKIN_PROFILES: &[SkinProfile] = &[
     },
     SkinProfile {
         id: "articular-cartilage",
-        label: "Articular cartilage (joint)",
-        site: "Hyaline cartilage over subchondral bone",
+        label: "Joint cartilage",
+        site: "Knee or joint cartilage",
         description:
             "Avascular hyaline cartilage over subchondral bone and marrow. With no perfusion to carry heat away, the cartilage relies on conduction alone.",
         shallow_marker_label: "Mid-cartilage zone",
@@ -624,8 +624,8 @@ pub static SKIN_PROFILES: &[SkinProfile] = &[
     },
     SkinProfile {
         id: "cell-membrane",
-        label: "Cell membrane / monolayer (in vitro)",
-        site: "Cultured cell construct in medium",
+        label: "Cell culture",
+        site: "In-vitro cell layer",
         description:
             "A cultured-cell construct in aqueous medium, for in-vitro thermal-dose exploration. A real lipid bilayer is nanometres thick, so this is a bulk-thermal analogue rather than a resolved membrane, and the skin burn thresholds do not physically apply.",
         shallow_marker_label: "Construct base",
@@ -767,7 +767,7 @@ pub struct InterfaceMaterial {
 pub static INTERFACE_MATERIALS: &[InterfaceMaterial] = &[
     InterfaceMaterial {
         id: "dry-contact",
-        label: "Dry skin contact (pressure-dependent)",
+        label: "Dry contact",
         conductivity_w_per_m_k: 0.026,
         default_thickness_um: 20.0,
         pressure_dependent: true,
@@ -776,7 +776,7 @@ pub static INTERFACE_MATERIALS: &[InterfaceMaterial] = &[
     },
     InterfaceMaterial {
         id: "air-gap",
-        label: "Still air gap",
+        label: "Air gap",
         conductivity_w_per_m_k: 0.026,
         default_thickness_um: 100.0,
         pressure_dependent: false,
@@ -784,7 +784,7 @@ pub static INTERFACE_MATERIALS: &[InterfaceMaterial] = &[
     },
     InterfaceMaterial {
         id: "hydrogel",
-        label: "Hydrogel / conductive gel",
+        label: "Hydrogel",
         conductivity_w_per_m_k: 0.59,
         default_thickness_um: 250.0,
         pressure_dependent: false,
@@ -792,7 +792,7 @@ pub static INTERFACE_MATERIALS: &[InterfaceMaterial] = &[
     },
     InterfaceMaterial {
         id: "water-film",
-        label: "Water / sweat film",
+        label: "Water film",
         conductivity_w_per_m_k: 0.61,
         default_thickness_um: 30.0,
         pressure_dependent: false,
@@ -800,7 +800,7 @@ pub static INTERFACE_MATERIALS: &[InterfaceMaterial] = &[
     },
     InterfaceMaterial {
         id: "silicone-pad",
-        label: "Silicone thermal pad",
+        label: "Silicone pad",
         conductivity_w_per_m_k: 1.50,
         default_thickness_um: 500.0,
         pressure_dependent: false,
@@ -808,7 +808,7 @@ pub static INTERFACE_MATERIALS: &[InterfaceMaterial] = &[
     },
     InterfaceMaterial {
         id: "medical-tape",
-        label: "Medical adhesive tape",
+        label: "Medical tape",
         conductivity_w_per_m_k: 0.15,
         default_thickness_um: 150.0,
         pressure_dependent: false,
@@ -816,7 +816,7 @@ pub static INTERFACE_MATERIALS: &[InterfaceMaterial] = &[
     },
     InterfaceMaterial {
         id: "fabric",
-        label: "Thin fabric layer",
+        label: "Fabric layer",
         conductivity_w_per_m_k: 0.045,
         default_thickness_um: 400.0,
         pressure_dependent: false,

@@ -207,23 +207,23 @@ const HEAT_FIELDS: StimulusField[] = [
     defaultValue: "volar-forearm",
     group: "environment",
     catalog: "skinProfiles",
-    help: "Sets layer thicknesses, perfusion and baseline temperature.",
+    help: "Sets tissue layers and baseline temperature for this body site.",
   },
   {
     kind: "choice",
     key: "solverDimension",
-    label: "Solver mode",
+    label: "Solver",
     defaultValue: "auto",
     group: "contact",
     choices: [
-      { value: "auto", label: "Auto — pick 1D or axisymmetric from contact size" },
-      { value: "1d", label: "1D fast — depth-only (large pads)" },
+      { value: "auto", label: "Auto" },
+      { value: "1d", label: "1D (fast)" },
       {
         value: "axisymmetric",
-        label: "Axisymmetric r–z — resolves lateral heat spread (small probes)",
+        label: "2D axisymmetric",
       },
     ],
-    help: "Small contact patches lose heat sideways. Auto switches to axisymmetric r–z when the 1D assumption breaks down (Fo ≥ 0.02).",
+    help: "Small contacts lose heat sideways — Auto picks 2D when needed.",
   },
   {
     kind: "choice",
@@ -234,11 +234,11 @@ const HEAT_FIELDS: StimulusField[] = [
     choices: [
       {
         value: "local-hyperemia",
-        label: "Local hyperemia — blood flow rises with tissue temperature",
+        label: "Rises with heat",
       },
-      { value: "static", label: "Static — constant baseline perfusion" },
+      { value: "static", label: "Constant" },
     ],
-    help: "Local heating can raise cutaneous blood flow ~9× by 42 °C (Mayrovitz 2020). That removes heat and lowers peak skin temperature during long holds.",
+    help: "Local heating can increase blood flow during long holds, pulling heat away from tissue.",
   },
   {
     kind: "number",
@@ -250,7 +250,7 @@ const HEAT_FIELDS: StimulusField[] = [
     step: 0.1,
     defaultValue: 9,
     group: "environment",
-    help: "Peak blood-flow / baseline under local heating. Literature forearm values are typically 8–11× near 42 °C.",
+    help: "Peak blood-flow increase under local heating. Forearm studies are typically 8–11× near 42 °C.",
   },
   {
     kind: "number",

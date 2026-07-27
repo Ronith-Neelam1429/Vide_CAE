@@ -9,7 +9,6 @@ import {
 import {
   BUILTIN_STIMULI,
   getStimulusDefinition,
-  STIMULUS_PRESETS,
   visibleFields,
   type StimulusChoiceField,
   type StimulusField,
@@ -25,10 +24,6 @@ type StimulusFormProps = {
 type Option = { value: string; label: string; group?: string };
 
 /** Always-visible heat fields for a runnable experiment. */
-function formatConductivity(value: number): string {
-  return `${value} W/m·K`;
-}
-
 function optionsFor(
   field: StimulusChoiceField,
   catalog: ModelCatalog | null,
@@ -41,17 +36,16 @@ function optionsFor(
       return catalog.skinProfiles.map((entry) => ({
         value: entry.id,
         label: entry.label,
-        group: entry.category,
       }));
     case "deviceMaterials":
       return catalog.deviceMaterials.map((entry) => ({
         value: entry.id,
-        label: `${entry.label} · ${formatConductivity(entry.conductivityWPerMK)}`,
+        label: entry.label,
       }));
     case "interfaceMaterials":
       return catalog.interfaceMaterials.map((entry) => ({
         value: entry.id,
-        label: `${entry.label} · ${formatConductivity(entry.conductivityWPerMK)}`,
+        label: entry.label,
       }));
     case "damageModels":
       return catalog.damageModels.map((entry) => ({
@@ -79,11 +73,7 @@ function describeOption(
     }
     case "interfaceMaterials": {
       const entry = catalog.interfaceMaterials.find((e) => e.id === value);
-      return entry
-        ? `${formatConductivity(entry.conductivityWPerMK)}${
-            entry.pressureDependent ? ", pressure-dependent" : ""
-          }. ${entry.source}`
-        : null;
+      return entry ? entry.source : null;
     }
     case "damageModels": {
       const entry = catalog.damageModels.find((e) => e.id === value);
@@ -238,7 +228,6 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
   const setStimulusType = useExperimentStore((s) => s.setStimulusType);
   const setStimulusParameter = useExperimentStore((s) => s.setStimulusParameter);
   const setStimulusOption = useExperimentStore((s) => s.setStimulusOption);
-  const applyPreset = useExperimentStore((s) => s.applyPreset);
   const applyLiteratureCase = useExperimentStore((s) => s.applyLiteratureCase);
   const applyProtocolSuggestion = useExperimentStore((s) => s.applyProtocolSuggestion);
   const suggestProtocolFromText = useExperimentStore((s) => s.suggestProtocolFromText);
@@ -252,7 +241,6 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
   const [protocolSuggestion, setProtocolSuggestion] =
     useState<ProtocolSuggestion | null>(null);
   const [protocolSearching, setProtocolSearching] = useState(false);
-  const [activePresetId, setActivePresetId] = useState("");
 
   const sensitivity: SensitivityEntry[] = useMemo(() => {
     const contact = simulationResult?.contacts.find(
@@ -432,31 +420,6 @@ export function StimulusForm({ contactPointId }: StimulusFormProps) {
             </option>
           ))}
         </select>
-      </label>
-
-      <label className="stimulus-form__field stimulus-form__field--preset">
-        <span className="stimulus-form__label">Quick fill · Preset scenario</span>
-        <select
-          className="stimulus-form__select"
-          value={activePresetId}
-          onChange={(event) => {
-            const id = event.target.value;
-            setActivePresetId(id);
-            if (id) applyPreset(contactPointId, id);
-          }}
-        >
-          <option value="">Choose a starting scenario…</option>
-          {STIMULUS_PRESETS.filter(
-            (preset) => preset.stimulusType === assignment.stimulusType,
-          ).map((preset) => (
-            <option key={preset.id} value={preset.id}>
-              {preset.label}
-            </option>
-          ))}
-        </select>
-        <span className="stimulus-form__help">
-          One click fills every field below with validated defaults — then press Run.
-        </span>
       </label>
 
       {definition && !definition.implemented && (

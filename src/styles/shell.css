@@ -1100,7 +1100,7 @@
 
 .stimulus-form__advanced {
   margin-top: 4px;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border: 1px solid var(--vide-border-subtle);
   border-radius: var(--vide-radius-md);
   background: rgba(255, 255, 255, 0.02);
@@ -1738,6 +1738,19 @@
   border: 1px solid var(--vide-border-subtle);
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.12);
+}
+
+.stimulus-advanced .stimulus-form__params {
+  padding: 4px 14px 14px;
+}
+
+.stimulus-advanced .stimulus-form__field {
+  padding: 0 2px;
+}
+
+.stimulus-advanced .stimulus-form__advanced {
+  margin-left: 2px;
+  margin-right: 2px;
 }
 
 .stimulus-advanced__toggle {
@@ -3422,12 +3435,10 @@
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 14px;
-  padding: 16px 18px;
-  border: 1px solid rgba(32, 184, 237, 0.28);
+  padding: 14px 16px;
+  border: 1px solid #383f47;
   border-radius: 12px;
-  background:
-    radial-gradient(120% 140% at 0% 0%, rgba(32, 184, 237, 0.16), transparent 55%),
-    linear-gradient(180deg, #232a31 0%, #1b2026 100%);
+  background: #202428;
 }
 
 .proof-lab__hero h2 {
@@ -3461,14 +3472,8 @@
 .proof-lab__body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
+  gap: 14px;
   align-items: start;
-}
-
-@media (min-width: 1100px) {
-  .proof-lab__body {
-    grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
-  }
 }
 
 .proof-lab__main {
@@ -3477,20 +3482,12 @@
 
 .proof-lab__aside {
   min-width: 0;
-}
-
-@media (min-width: 1100px) {
-  .proof-lab__aside {
-    position: sticky;
-    top: 0;
-    max-height: calc(100vh - 120px);
-    overflow: auto;
-  }
+  max-width: 100%;
 }
 
 .proof-lab__eyebrow {
   margin: 0 0 4px;
-  color: #7ec8e8;
+  color: #a8b1ba;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -3499,12 +3496,10 @@
 
 .proof-lab__ai {
   margin-bottom: 0;
-  padding: 14px 16px;
-  border: 1px solid rgba(240, 140, 105, 0.28);
-  border-radius: 12px;
-  background:
-    radial-gradient(100% 120% at 100% 0%, rgba(240, 140, 105, 0.12), transparent 50%),
-    #1d2228;
+  padding: 12px 14px;
+  border: 1px solid #383f47;
+  border-radius: 10px;
+  background: #1d2024;
 }
 
 .proof-lab__ai-header {
@@ -3555,8 +3550,8 @@
 
 .proof-lab__ai-briefs {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 8px;
 }
 
 .proof-lab__ai-brief {
@@ -3637,10 +3632,10 @@
 }
 
 .proof-lab__case {
-  padding: 14px 16px 16px;
-  border: 1px solid #343c45;
-  border-radius: 12px;
-  background: linear-gradient(180deg, #22282f 0%, #1b2026 100%);
+  padding: 14px;
+  border: 1px solid #383f47;
+  border-radius: 10px;
+  background: #1d2024;
 }
 
 .proof-lab__case-header {
@@ -3679,8 +3674,8 @@
 }
 
 .proof-lab__pill.is-modality {
-  border-color: rgba(32, 184, 237, 0.4);
-  color: #9bdcff;
+  border-color: #59636e;
+  color: #c5ced6;
 }
 
 .proof-lab__pill.is-user {
@@ -3746,15 +3741,15 @@
 .proof-lab__paper {
   display: block;
   cursor: pointer;
-  border: 1px solid #3a424c;
-  border-radius: 10px;
-  background: #1e242b;
+  border: 1px solid #383f47;
+  border-radius: 8px;
+  background: #1d2024;
   transition: border-color 120ms ease, background 120ms ease;
 }
 
 .proof-lab__paper.is-selected {
-  border-color: rgba(32, 184, 237, 0.55);
-  background: rgba(32, 184, 237, 0.08);
+  border-color: #858f99;
+  background: #252a2f;
 }
 
 .proof-lab__paper input {

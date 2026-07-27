@@ -37,7 +37,6 @@ import {
 import {
   defaultOptionsFor,
   defaultParametersFor,
-  STIMULUS_PRESETS,
   type StimulusOptions,
   type StimulusParameters,
   type StimulusType,
@@ -206,8 +205,6 @@ type ExperimentState = {
     value: string,
   ) => void;
   /** Fill every field of one contact from a named scenario. */
-  applyPreset: (contactPointId: string, presetId: string) => void;
-  /** Apply a curated literature protocol (calibration or hold-out case). */
   applyLiteratureCase: (contactPointId: string, caseId: string) => void;
   /** Apply an assist suggestion (Azure or rules) onto a contact. */
   applyProtocolSuggestion: (
@@ -610,32 +607,6 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
         return { ...assignment, options, parameters };
       }),
     })),
-
-  applyPreset: (contactPointId, presetId) =>
-    set((state) => {
-      const preset = STIMULUS_PRESETS.find((candidate) => candidate.id === presetId);
-      if (!preset) return state;
-
-      return {
-        assignments: state.assignments.map((assignment) =>
-          assignment.contactPointId === contactPointId
-            ? {
-                ...assignment,
-                stimulusType: preset.stimulusType,
-                parameters: {
-                  ...defaultParametersFor(preset.stimulusType),
-                  ...preset.parameters,
-                },
-                options: {
-                  ...defaultOptionsFor(preset.stimulusType),
-                  ...preset.options,
-                },
-                literatureCaseId: null,
-              }
-            : assignment,
-        ),
-      };
-    }),
 
   applyLiteratureCase: (contactPointId, caseId) =>
     set((state) => {
