@@ -2,9 +2,9 @@ mod assist;
 mod simulation;
 
 use assist::{
-    assist_config_status, extract_protocol_from_text, suggest_protocol_from_text,
-    AssistConfigStatus, ExtractProtocolRequest, ExtractProtocolResponse, ProtocolSuggestion,
-    SuggestProtocolRequest,
+    analyze_proof_lab_report, assist_config_status, extract_protocol_from_text,
+    suggest_protocol_from_text, AnalyzeProofLabRequest, AssistConfigStatus, ExtractProtocolRequest,
+    ExtractProtocolResponse, ProofLabAnalysis, ProtocolSuggestion, SuggestProtocolRequest,
 };
 
 use simulation::mechanics::{run_mechanics_simulation, MechanicsResponse};
@@ -76,6 +76,14 @@ async fn assist_extract_protocol(
     extract_protocol_from_text(request).await
 }
 
+/// AI (Azure or rules) narrative for Proof Lab paper ↔ Vide comparisons.
+#[tauri::command]
+async fn assist_analyze_proof_lab(
+    request: AnalyzeProofLabRequest,
+) -> Result<ProofLabAnalysis, String> {
+    analyze_proof_lab_report(request).await
+}
+
 /// The tissue profiles, materials and damage kinetics the UI offers, served
 /// from the same tables the solver uses so the two cannot drift apart.
 #[derive(serde::Serialize)]
@@ -115,6 +123,7 @@ pub fn run() {
             assist_status,
             assist_suggest_protocol,
             assist_extract_protocol,
+            assist_analyze_proof_lab,
             model_catalog
         ])
         .run(tauri::generate_context!())

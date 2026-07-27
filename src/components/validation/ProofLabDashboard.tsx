@@ -9,69 +9,158 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import type { ProofLabAnalysis } from "../../lib/assist";
 import type {
   CrossValidationCase,
+  DataPointCompare,
+  ExperimentMetric,
   ProofLabCaseResult,
   WindowComparison,
 } from "../../lib/simulation";
 import { useExperimentStore } from "../../store/experimentStore";
-import { ModelDiagnostics } from "../results/ModelDiagnostics";
+import {
+  formatParamKey,
+  metricDescription,
+  PROOF_LAB_CATEGORY_HELP,
+  PROOF_LAB_COLUMN_HELP,
+  PROOF_LAB_METRIC_HELP,
+} from "../../lib/proofLabGlossary";
 
 function formatMetric(value: number | null | undefined, digits = 3, unit = ""): string {
   if (value === null || value === undefined || Number.isNaN(value)) {
-    return "Unavailable";
+    return "—";
   }
   return `${value.toFixed(digits)}${unit}`;
 }
 
-function MetricsTable({ window }: { window: WindowComparison }) {
-  const { metrics } = window;
+function formatSigned(value: number | null | undefined, digits = 3, unit = ""): string {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "—";
+  }
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(digits)}${unit}`;
+}
+
+function modalityLabel(modality: string): string {
+  if (modality === "mechanical") return "Mechanical";
+  if (modality === "electrical") return "Electrical";
+  return "Heat";
+}
+
+function MetricCards({ metrics }: { metrics: ExperimentMetric[] }) {
+  const primary = metrics.filter((metric) => metric.category !== "summary");
+  const summary = metrics.filter((metric) => metric.category === "summary");
   return (
-    <table className="proof-lab__metrics">
-      <thead>
-        <tr>
-          <th>Metric</th>
-          <th>Measured</th>
-          <th>Predicted</th>
-          <th>Error</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>Samples</td>
-          <td colSpan={3}>{window.sampleCount}</td>
-        </tr>
-        <tr>
-          <td>RMSE</td>
-          <td>—</td>
-          <td>—</td>
-          <td>{formatMetric(metrics.rmseC, 3, " °C")}</td>
-        </tr>
-        <tr>
-          <td>MAE</td>
-          <td>—</td>
-          <td>—</td>
-          <td>{formatMetric(metrics.maeC, 3, " °C")}</td>
-        </tr>
-        <tr>
-          <td>Signed bias</td>
-          <td>—</td>
-          <td>—</td>
-          <td>{formatMetric(metrics.signedBiasC, 3, " °C")}</td>
-        </tr>
-        <tr>
-          <td>Peak temperature</td>
-          <td>{formatMetric(window.peakMeasuredC, 2, " °C")}</td>
-          <td>{formatMetric(window.peakPredictedC, 2, " °C")}</td>
-          <td>{formatMetric(metrics.peakTemperatureErrorC, 2, " °C")}</td>
-        </tr>
-        <tr>
-          <td>Time-to-peak error</td>
-          <td colSpan={2}>—</td>
-          <td>{formatMetric(metrics.timeToPeakErrorS, 1, " s")}</td>
-        </tr>
-      </tbody>
-    </table>
+    <div className="proof-lab__metric-stack">
+      <div className="proof-lab__metric-grid">
+        {primary.map((metric) => {
+          const help = metricDescription(metric);
+          return (
+            <article
+              key={metric.id}
+              className={`proof-lab__metric-card is-${metric.category}`}
+              title={help}
+            >
+              <header>
+                <div>
+                  <span>{metric.label}</span>
+                  {help && <p className="proof-lab__metric-desc">{help}</p>}
+                </div>
+                <small>{metric.unit}</small>
+              </header>
+              <div className="proof-lab__metric-compare">
+                <div>
+                  <em>Published study</em>
+                  <strong>{formatMetric(metric.paperValue, 3)}</strong>
+                </div>
+                <div className="proof-lab__metric-vs" aria-hidden>
+                  vs
+                </div>
+                <div>
+                  <em>Your simulation</em>
+                  <strong>{formatMetric(metric.videValue, 3)}</strong>
+                </div>
+              </div>
+              <footer>
+                <span title={PROOF_LAB_COLUMN_HELP.delta}>
+                  Gap {formatSigned(metric.absoluteError, 3, ` ${metric.unit}`)}
+                </span>
+                {metric.relativeErrorPct !== null && metric.relativeErrorPct !== undefined && (
+                  <span title={PROOF_LAB_COLUMN_HELP.relative}>
+                    {formatSigned(metric.relativeErrorPct, 1, "%")}
+                  </span>
+                )}
+              </footer>
+              {metric.note && <p className="proof-lab__metric-note">{metric.note}</p>}
+            </article>
+          );
+        })}
+      </div>
+      {summary.length > 0 && (
+        <div className="proof-lab__summary-strip">
+          {summary.map((metric) => (
+            <div key={metric.id} title={metricDescription(metric)}>
+              <span>{metric.label}</span>
+              <strong>
+                {formatMetric(metric.videValue ?? metric.paperValue, 3, ` ${metric.unit}`)}
+              </strong>
+              {metric.description && (
+                <small className="proof-lab__summary-help">{metric.description}</small>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DataPointTable({
+  points,
+  emptyLabel,
+}: {
+  points: DataPointCompare[];
+  emptyLabel: string;
+}) {
+  if (points.length === 0) {
+    return <p className="proof-lab__empty-inline">{emptyLabel}</p>;
+  }
+  return (
+    <div className="proof-lab__table-wrap">
+      <table className="proof-lab__metrics">
+        <thead>
+          <tr>
+            <th>When / what</th>
+            <th title={PROOF_LAB_COLUMN_HELP.published}>Published study</th>
+            <th title={PROOF_LAB_COLUMN_HELP.yours}>Your simulation</th>
+            <th title={PROOF_LAB_COLUMN_HELP.delta}>Gap (you − study)</th>
+            <th title={PROOF_LAB_COLUMN_HELP.relative}>% diff</th>
+          </tr>
+        </thead>
+        <tbody>
+          {points.map((point) => (
+            <tr key={`${point.label}-${point.x}`}>
+              <td>
+                <div className="proof-lab__point-label">
+                  <strong>{point.label}</strong>
+                  <small>
+                    {point.xLabel} {formatMetric(point.x, 2)} {point.xUnit}
+                  </small>
+                </div>
+              </td>
+              <td>{formatMetric(point.paperValue, 3, ` ${point.unit}`)}</td>
+              <td>{formatMetric(point.videValue, 3, ` ${point.unit}`)}</td>
+              <td>{formatSigned(point.absoluteError, 3, ` ${point.unit}`)}</td>
+              <td>
+                {point.relativeErrorPct === null
+                  ? "—"
+                  : formatSigned(point.relativeErrorPct, 1, "%")}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -101,51 +190,52 @@ function WindowChart({ entry, window }: { entry: ProofLabCaseResult; window: Win
   }, [entry, window]);
 
   return (
-    <div className="validation-chart" aria-label={`${window.label} overlay`}>
-      <ResponsiveContainer width="100%" height={240}>
+    <div className="validation-chart proof-lab__chart" aria-label={`${window.label} overlay`}>
+      <ResponsiveContainer width="100%" height={260}>
         <LineChart data={data} margin={{ top: 12, right: 16, bottom: 4, left: 0 }}>
-          <CartesianGrid stroke="#3d3d3d" strokeDasharray="3 3" />
+          <CartesianGrid stroke="rgba(255,255,255,0.06)" strokeDasharray="3 3" />
           <XAxis
             dataKey="timeS"
             type="number"
             unit=" s"
-            tick={{ fill: "#909090", fontSize: 10 }}
+            tick={{ fill: "#9aa3ad", fontSize: 10 }}
             tickLine={false}
-            axisLine={{ stroke: "#4a4a4a" }}
+            axisLine={{ stroke: "#3d4650" }}
           />
           <YAxis
             unit=" °C"
             width={56}
-            tick={{ fill: "#909090", fontSize: 10 }}
+            tick={{ fill: "#9aa3ad", fontSize: 10 }}
             tickLine={false}
-            axisLine={{ stroke: "#4a4a4a" }}
+            axisLine={{ stroke: "#3d4650" }}
             domain={["auto", "auto"]}
           />
           <Tooltip
             contentStyle={{
-              background: "#2a2a2a",
-              border: "1px solid #4a4a4a",
+              background: "#1c2229",
+              border: "1px solid #3d4650",
+              borderRadius: 8,
               fontSize: 12,
             }}
           />
           <Legend />
           <Line
-            name="Measured (paper)"
+            name="Published study"
             type="monotone"
             dataKey="measuredC"
             stroke="#f08c69"
-            strokeWidth={2}
-            dot={false}
+            strokeWidth={2.25}
+            dot={window.comparison.length <= 24}
             connectNulls
             isAnimationActive={false}
           />
           <Line
-            name="Predicted (Vide)"
+            name="Your simulation"
             type="monotone"
             dataKey="predictedC"
             stroke="#20b8ed"
-            strokeWidth={2}
-            dot={false}
+            strokeWidth={2.25}
+            dot={window.comparison.length <= 24}
             isAnimationActive={false}
           />
         </LineChart>
@@ -154,38 +244,224 @@ function WindowChart({ entry, window }: { entry: ProofLabCaseResult; window: Win
   );
 }
 
-function CasePanel({ entry }: { entry: ProofLabCaseResult }) {
+function ProtocolCompare({
+  yours,
+  paper,
+  title,
+}: {
+  yours: Record<string, number>;
+  paper: Record<string, number>;
+  title: string;
+}) {
+  const keys = [
+    "temperatureC",
+    "durationS",
+    "postExposureS",
+    "contactAreaMm2",
+    "baselineSkinTemperatureC",
+    "contactPressureKpa",
+  ].filter((key) => yours[key] !== undefined || paper[key] !== undefined);
+
+  if (keys.length === 0) return null;
+
+  return (
+    <div className="proof-lab__protocol-compare">
+      <h4>{title}</h4>
+      <table className="proof-lab__metrics proof-lab__metrics--compact">
+        <thead>
+          <tr>
+            <th>Setting</th>
+            <th>Published study</th>
+            <th>Your sidebar</th>
+          </tr>
+        </thead>
+        <tbody>
+          {keys.map((key) => {
+            const y = yours[key];
+            const p = paper[key];
+            const mismatch = y !== undefined && p !== undefined && Math.abs(y - p) > 1e-6;
+            return (
+              <tr key={key} className={mismatch ? "is-mismatch" : undefined}>
+                <td>{formatParamKey(key)}</td>
+                <td>{p !== undefined ? p : "—"}</td>
+                <td>{y !== undefined ? y : "—"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function GlossaryPanel() {
+  return (
+    <details className="proof-lab__glossary">
+      <summary>What do these numbers mean?</summary>
+      <div className="proof-lab__glossary-grid">
+        <div>
+          <h5>Column labels</h5>
+          <dl>
+            <dt>Published study</dt>
+            <dd>{PROOF_LAB_COLUMN_HELP.published}</dd>
+            <dt>Your simulation</dt>
+            <dd>{PROOF_LAB_COLUMN_HELP.yours}</dd>
+            <dt>Gap (you − study)</dt>
+            <dd>{PROOF_LAB_COLUMN_HELP.delta}</dd>
+          </dl>
+        </div>
+        <div>
+          <h5>Common metrics</h5>
+          <dl>
+            {Object.entries(PROOF_LAB_METRIC_HELP)
+              .slice(0, 8)
+              .map(([key, text]) => (
+                <div key={key}>
+                  <dt>{formatParamKey(key)}</dt>
+                  <dd>{text}</dd>
+                </div>
+              ))}
+          </dl>
+        </div>
+        <div>
+          <h5>Card types</h5>
+          <dl>
+            {Object.entries(PROOF_LAB_CATEGORY_HELP).map(([key, text]) => (
+              <div key={key}>
+                <dt>{formatParamKey(key)}</dt>
+                <dd>{text}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </div>
+    </details>
+  );
+}
+
+function AiPanel({
+  analysis,
+  status,
+  error,
+  onRefresh,
+}: {
+  analysis: ProofLabAnalysis | null;
+  status: "idle" | "running" | "complete" | "error";
+  error: string | null;
+  onRefresh: () => void;
+}) {
+  return (
+    <section className="proof-lab__ai">
+      <header className="proof-lab__ai-header">
+        <div>
+          <p className="proof-lab__eyebrow">AI comparison brief</p>
+          <h3>{analysis?.headline ?? "Interpreting paper vs Vide checkpoints"}</h3>
+        </div>
+        <div className="proof-lab__ai-actions">
+          {analysis && (
+            <span className={`proof-lab__source is-${analysis.source}`}>
+              {analysis.source === "azure" ? "Azure" : "Rules"}
+            </span>
+          )}
+          <button
+            type="button"
+            className="sidebar__btn"
+            onClick={onRefresh}
+            disabled={status === "running"}
+          >
+            {status === "running" ? "Analyzing…" : "Refresh AI"}
+          </button>
+        </div>
+      </header>
+      {status === "running" && (
+        <p className="proof-lab__ai-status">Reading experiment checkpoints and residuals…</p>
+      )}
+      {status === "error" && error && <p className="proof-lab__ai-status is-warn">{error}</p>}
+      {analysis && (
+        <>
+          <p className="proof-lab__ai-summary">{analysis.summary}</p>
+          <div className="proof-lab__ai-briefs">
+            {analysis.caseBriefs.map((brief) => (
+              <article key={brief.caseId} className={`proof-lab__ai-brief is-${brief.agreement}`}>
+                <header>
+                  <h4>{brief.headline}</h4>
+                  <span>{brief.agreement}</span>
+                </header>
+                {brief.highlights.length > 0 && (
+                  <ul>
+                    {brief.highlights.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                )}
+                {brief.concerns.length > 0 && (
+                  <ul className="is-concern">
+                    {brief.concerns.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                )}
+              </article>
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function CasePanel({
+  entry,
+  brief,
+}: {
+  entry: ProofLabCaseResult;
+  brief?: ProofLabAnalysis["caseBriefs"][number];
+}) {
   const [windowIndex, setWindowIndex] = useState(0);
   const window = entry.windows[windowIndex] ?? entry.windows[0];
   if (!window) return null;
 
   return (
-    <article className="validation-card proof-lab__case">
-      <header className="validation-card__header">
+    <article className="proof-lab__case">
+      <header className="proof-lab__case-header">
         <div>
+          <div className="proof-lab__case-tags">
+            <span className="proof-lab__pill is-modality">{modalityLabel(entry.modality)}</span>
+            <span className="proof-lab__pill is-user">Your sidebar · {entry.contactLabel}</span>
+            {brief && <span className={`proof-lab__pill is-${brief.agreement}`}>{brief.agreement}</span>}
+          </div>
           <h3>{entry.title}</h3>
-          <p className="validation-card__meta">{entry.citation}</p>
+          <p className="proof-lab__citation">{entry.citation}</p>
         </div>
-        <span className="validation-pill is-ready">Blind run complete</span>
+        <div className="proof-lab__case-kpis">
+          <div title={PROOF_LAB_METRIC_HELP.rmse}>
+            <em>Typical gap (RMSE)</em>
+            <strong>{formatMetric(window.metrics.rmseC, 3, " °C")}</strong>
+          </div>
+          <div title={PROOF_LAB_METRIC_HELP.mae}>
+            <em>Avg mismatch (MAE)</em>
+            <strong>{formatMetric(window.metrics.maeC, 3, " °C")}</strong>
+          </div>
+          <div title={PROOF_LAB_METRIC_HELP.signed_bias}>
+            <em>Bias (hot/cool)</em>
+            <strong>{formatSigned(window.metrics.signedBiasC, 3, " °C")}</strong>
+          </div>
+        </div>
       </header>
 
-      <div className="proof-lab__banner">
-        <strong>Blind protocol.</strong> Vide simulated from locked paper inputs only. Measured
-        paper values were compared afterward — the solver never saw them.
-        {entry.measurementTarget === "skin_surface"
-          ? " This case compares skin-surface temperature."
-          : " This case compares probe/thermode interface temperature."}
-      </div>
+      <p className="proof-lab__lede">
+        {entry.measurementNote} Each card compares a published checkpoint to what your sidebar
+        settings produced. If your temperature or duration differs from the study, large gaps are
+        expected — check the protocol table below.
+      </p>
 
-      <div className="proof-lab__target">
-        Compared quantity:{" "}
-        <code>
-          {entry.measurementTarget === "skin_surface"
-            ? "skin surface temperature"
-            : "thermode / probe interface temperature"}
-        </code>
-        <p>{entry.measurementNote}</p>
-      </div>
+      <ProtocolCompare
+        title="Protocol · published study vs your sidebar"
+        paper={entry.paperReferenceInputs}
+        yours={entry.protocolInputs}
+      />
+
+      <MetricCards metrics={entry.experimentMetrics.length ? entry.experimentMetrics : window.experimentMetrics} />
 
       <div className="proof-lab__windows" role="tablist" aria-label="Comparison windows">
         {entry.windows.map((item, index) => (
@@ -198,22 +474,61 @@ function CasePanel({ entry }: { entry: ProofLabCaseResult }) {
             onClick={() => setWindowIndex(index)}
           >
             {item.label}
+            <small>{item.sampleCount} pts</small>
           </button>
         ))}
       </div>
 
-      <WindowChart entry={entry} window={window} />
-      <MetricsTable window={window} />
+      <div className="proof-lab__split">
+        <WindowChart entry={entry} window={window} />
+        <div className="proof-lab__split-side">
+          <h4>Checkpoint-by-checkpoint</h4>
+          <DataPointTable
+            points={window.keyDataPoints}
+            emptyLabel="No measured checkpoints in this window."
+          />
+        </div>
+      </div>
+
+      {window.experimentMetrics.length > 0 && entry.windows.length > 1 && (
+        <>
+          <h4 className="proof-lab__section-title">Window metrics · {window.label}</h4>
+          <MetricCards metrics={window.experimentMetrics} />
+        </>
+      )}
 
       <details className="proof-lab__details">
-        <summary>Paper inputs Vide used (no measured data)</summary>
-        <ul>
-          {Object.entries(entry.protocolInputs).map(([key, value]) => (
-            <li key={key}>
-              <code>{key}</code> = {value}
-            </li>
-          ))}
-        </ul>
+        <summary>Study notes & full parameter lists</summary>
+        <div className="proof-lab__details-grid">
+          <div>
+            <h5>What the study reported</h5>
+            <ul>
+              {entry.extractedFromPaper.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <h5>Your sidebar inputs (used for simulation)</h5>
+            <ul>
+              {Object.entries(entry.protocolInputs).map(([key, value]) => (
+                <li key={key}>
+                  <code>{key}</code> = {value}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <h5>Published protocol reference</h5>
+            <ul>
+              {Object.entries(entry.paperReferenceInputs).map(([key, value]) => (
+                <li key={key}>
+                  <code>{key}</code> = {value}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
       </details>
 
       {entry.caveats.length > 0 && (
@@ -227,46 +542,119 @@ function CasePanel({ entry }: { entry: ProofLabCaseResult }) {
   );
 }
 
-function CrossValidationPanel({ entry }: { entry: CrossValidationCase }) {
+function CrossValidationPanel({
+  entry,
+  brief,
+}: {
+  entry: CrossValidationCase;
+  brief?: ProofLabAnalysis["caseBriefs"][number];
+}) {
   return (
-    <article className="validation-card proof-lab__case">
-      <header className="validation-card__header">
+    <article className="proof-lab__case">
+      <header className="proof-lab__case-header">
         <div>
+          <div className="proof-lab__case-tags">
+            <span className="proof-lab__pill is-modality">{modalityLabel(entry.modality)}</span>
+            <span className="proof-lab__pill is-transfer">Transfer check</span>
+            {brief && <span className={`proof-lab__pill is-${brief.agreement}`}>{brief.agreement}</span>}
+          </div>
           <h3>{entry.title}</h3>
-          <p className="validation-card__meta">{entry.citation}</p>
+          <p className="proof-lab__citation">{entry.citation}</p>
         </div>
-        <span className="validation-pill is-warn">{entry.status}</span>
+        <div className="proof-lab__case-kpis">
+          <div>
+            <em>RMSE</em>
+            <strong>
+              {entry.rmse.toFixed(3)} {entry.metricUnit}
+            </strong>
+          </div>
+          <div>
+            <em>MAE</em>
+            <strong>
+              {entry.mae.toFixed(3)} {entry.metricUnit}
+            </strong>
+          </div>
+          <div>
+            <em>Bias</em>
+            <strong>
+              {formatSigned(entry.signedBias, 3)} {entry.metricUnit}
+            </strong>
+          </div>
+        </div>
       </header>
-      <div className="proof-lab__banner">
-        <strong>{entry.modality === "mechanical" ? "Mechanical" : "Electrical"} transfer check.</strong>{" "}
-        Production equations generated predictions before the independent reference
-        curve was evaluated. A high error is a visible failed validation, not a hidden
+
+      <p className="proof-lab__lede">
+        Every published {entry.metricLabel.toLowerCase()} is listed beside Vide’s prediction for the
+        same {entry.xLabel.toLowerCase()}. High error here is a visible failed transfer, not a hidden
         calibration target.
+      </p>
+
+      <MetricCards metrics={entry.experimentMetrics} />
+
+      <div className="proof-lab__split">
+        <div className="validation-chart proof-lab__chart">
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={entry.points} margin={{ top: 12, right: 16, bottom: 4, left: 0 }}>
+              <CartesianGrid stroke="rgba(255,255,255,0.06)" strokeDasharray="3 3" />
+              <XAxis
+                dataKey="x"
+                type="number"
+                unit={` ${entry.xUnit}`}
+                tick={{ fill: "#9aa3ad", fontSize: 10 }}
+                tickLine={false}
+                axisLine={{ stroke: "#3d4650" }}
+              />
+              <YAxis
+                unit={` ${entry.metricUnit}`}
+                width={64}
+                tick={{ fill: "#9aa3ad", fontSize: 10 }}
+                tickLine={false}
+                axisLine={{ stroke: "#3d4650" }}
+                domain={["auto", "auto"]}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: "#1c2229",
+                  border: "1px solid #3d4650",
+                  borderRadius: 8,
+                  fontSize: 12,
+                }}
+              />
+              <Legend />
+              <Line
+                name="Published study"
+                type="monotone"
+                dataKey="measured"
+                stroke="#f08c69"
+                strokeWidth={2.25}
+                dot
+                isAnimationActive={false}
+              />
+              <Line
+                name="Vide model"
+                type="monotone"
+                dataKey="predicted"
+                stroke="#20b8ed"
+                strokeWidth={2.25}
+                dot
+                isAnimationActive={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="proof-lab__split-side">
+          <h4>Checkpoint-by-checkpoint</h4>
+          <DataPointTable
+            points={entry.keyDataPoints}
+            emptyLabel="No transfer points available."
+          />
+        </div>
       </div>
-      <div className="validation-chart">
-        <ResponsiveContainer width="100%" height={240}>
-          <LineChart data={entry.points} margin={{ top: 12, right: 16, bottom: 4, left: 0 }}>
-            <CartesianGrid stroke="#3d3d3d" strokeDasharray="3 3" />
-            <XAxis dataKey="x" type="number" unit={` ${entry.xUnit}`} tick={{ fill: "#909090", fontSize: 10 }} tickLine={false} axisLine={{ stroke: "#4a4a4a" }} />
-            <YAxis unit={` ${entry.metricUnit}`} width={64} tick={{ fill: "#909090", fontSize: 10 }} tickLine={false} axisLine={{ stroke: "#4a4a4a" }} domain={["auto", "auto"]} />
-            <Tooltip contentStyle={{ background: "#2a2a2a", border: "1px solid #4a4a4a", fontSize: 12 }} />
-            <Legend />
-            <Line name="Independent reference" type="monotone" dataKey="measured" stroke="#f08c69" strokeWidth={2} dot isAnimationActive={false} />
-            <Line name="Vide prediction" type="monotone" dataKey="predicted" stroke="#20b8ed" strokeWidth={2} dot isAnimationActive={false} />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-      <table className="proof-lab__metrics">
-        <thead><tr><th>Metric</th><th>Value</th><th>Unit</th></tr></thead>
-        <tbody>
-          <tr><td>Samples</td><td>{entry.points.length}</td><td>—</td></tr>
-          <tr><td>RMSE</td><td>{entry.rmse.toFixed(3)}</td><td>{entry.metricUnit}</td></tr>
-          <tr><td>MAE</td><td>{entry.mae.toFixed(3)}</td><td>{entry.metricUnit}</td></tr>
-          <tr><td>Signed bias</td><td>{entry.signedBias.toFixed(3)}</td><td>{entry.metricUnit}</td></tr>
-        </tbody>
-      </table>
+
       <ul className="result-warnings">
-        {entry.caveats.map((caveat) => <li key={caveat}>{caveat}</li>)}
+        {entry.caveats.map((caveat) => (
+          <li key={caveat}>{caveat}</li>
+        ))}
       </ul>
     </article>
   );
@@ -278,86 +666,136 @@ export function ProofLabPanel() {
   const error = useExperimentStore((s) => s.proofLabError);
   const report = useExperimentStore((s) => s.proofLabResult);
   const run = useExperimentStore((s) => s.runProofLab);
-  const simulationResult = useExperimentStore((s) => s.simulationResult);
+  const analysis = useExperimentStore((s) => s.proofLabAnalysis);
+  const analysisStatus = useExperimentStore((s) => s.proofLabAnalysisStatus);
+  const analysisError = useExperimentStore((s) => s.proofLabAnalysisError);
+  const analyze = useExperimentStore((s) => s.analyzeProofLab);
+  const contactPoints = useExperimentStore((s) => s.contactPoints);
+  const assignments = useExperimentStore((s) => s.assignments);
   const selectedContactId = useExperimentStore((s) => s.selectedContactId);
   const selectContact = useExperimentStore((s) => s.selectContact);
 
-  const heatContacts = simulationResult?.contacts ?? [];
-  const activeContact =
-    heatContacts.find((c) => c.contactPointId === selectedContactId) ??
-    heatContacts[0] ??
-    null;
+  const heatContacts = useMemo(
+    () =>
+      contactPoints.filter((contact) => {
+        const assignment = assignments.find((a) => a.contactPointId === contact.id);
+        return assignment?.stimulusType === "heat";
+      }),
+    [assignments, contactPoints],
+  );
+
+  const activeContactId = selectedContactId ?? heatContacts[0]?.id ?? null;
+  const activeAssignment = assignments.find((a) => a.contactPointId === activeContactId);
+  const activeContact = contactPoints.find((c) => c.id === activeContactId);
+
+  const briefById = useMemo(() => {
+    const map = new Map<string, ProofLabAnalysis["caseBriefs"][number]>();
+    for (const brief of analysis?.caseBriefs ?? []) {
+      map.set(brief.caseId, brief);
+    }
+    return map;
+  }, [analysis]);
 
   return (
     <div className="docked-validation proof-lab">
-      {activeContact && simulationResult && (
-        <section className="proof-lab__diagnostics">
-          <header className="docked-validation__header">
-            <div>
-              <h2>Model diagnostics</h2>
-              <p>
-                Trust checks for your workspace run — not the paper comparison below.
-              </p>
-            </div>
-            {heatContacts.length > 1 && (
-              <select
-                className="stimulus-form__select"
-                value={activeContact.contactPointId}
-                onChange={(event) => selectContact(event.target.value)}
-                aria-label="Contact for diagnostics"
-              >
-                {heatContacts.map((contact) => (
-                  <option key={contact.contactPointId} value={contact.contactPointId}>
-                    {contact.label} · {contact.skinProfile.label}
-                  </option>
-                ))}
-              </select>
-            )}
-          </header>
-          <ModelDiagnostics
-            contact={activeContact}
-            verification={simulationResult.manifest.verification}
-          />
-        </section>
-      )}
-
-      <header className="docked-validation__header">
+      <header className="proof-lab__hero">
         <div>
-          <h2>Blind paper comparison</h2>
-          <p>Solver never sees measured data during the run.</p>
+          <p className="proof-lab__eyebrow">Proof Lab</p>
+          <h2>Your sidebar vs published studies</h2>
+          <p>
+            Runs your contact settings against each study&apos;s published measurements — every
+            checkpoint, not just averages.
+          </p>
         </div>
         <button
           type="button"
           className="sidebar__btn sidebar__btn--primary"
           onClick={() => void run()}
-          disabled={status === "running"}
+          disabled={status === "running" || heatContacts.length === 0}
         >
-          {status === "running" ? "Running…" : report ? "Re-run" : "Run comparison"}
+          {status === "running" ? "Running…" : report ? "Re-run suite" : "Run comparison"}
         </button>
       </header>
+
+      <div className="proof-lab__setup">
+        <div>
+          <h3>Contact used for simulation</h3>
+          <p>Select the heat contact whose sidebar settings you want to verify.</p>
+        </div>
+        {heatContacts.length > 0 ? (
+          <select
+            className="stimulus-form__select"
+            value={activeContactId ?? ""}
+            onChange={(event) => selectContact(event.target.value)}
+            aria-label="Contact for Proof Lab"
+          >
+            {heatContacts.map((contact) => (
+              <option key={contact.id} value={contact.id}>
+                {contact.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <p className="proof-lab__setup-warn">Add a heat contact in the sidebar first.</p>
+        )}
+      </div>
+
+      {activeAssignment && (
+        <div className="proof-lab__scope-banner">
+          <strong>Using your sidebar:</strong>{" "}
+          {activeContact?.label ?? "Contact"} ·{" "}
+          {activeAssignment.parameters.temperatureC ?? "?"} °C ·{" "}
+          {activeAssignment.parameters.durationS ?? "?"} s hold · compared to each study&apos;s
+          published data (not the study&apos;s protocol).
+        </div>
+      )}
+
+      <GlossaryPanel />
 
       {status === "error" && error && (
         <div className="validation-banner is-warn">{error}</div>
       )}
       {status === "running" && (
         <div className="validation-banner is-info">
-          Simulating from protocol inputs, then comparing…
+          Simulating from your sidebar settings, then scoring against published checkpoints…
         </div>
       )}
+
       {report && (
-        <>
-          <p className="validation-disclosure">{report.disclosure}</p>
-          {report.cases.map((entry) => (
-            <CasePanel key={entry.caseId} entry={entry} />
-          ))}
-          {report.crossValidationCases.map((entry) => (
-            <CrossValidationPanel key={entry.caseId} entry={entry} />
-          ))}
-        </>
+        <div className="proof-lab__body">
+          <div className="proof-lab__main">
+            <p className="validation-disclosure">{report.disclosure}</p>
+            <div className="proof-lab__case-list">
+              {report.cases.map((entry) => (
+                <CasePanel
+                  key={entry.caseId}
+                  entry={entry}
+                  brief={briefById.get(entry.caseId)}
+                />
+              ))}
+              {report.crossValidationCases.map((entry) => (
+                <CrossValidationPanel
+                  key={entry.caseId}
+                  entry={entry}
+                  brief={briefById.get(entry.caseId)}
+                />
+              ))}
+            </div>
+          </div>
+          <aside className="proof-lab__aside">
+            <AiPanel
+              analysis={analysis}
+              status={analysisStatus}
+              error={analysisError}
+              onRefresh={() => void analyze()}
+            />
+          </aside>
+        </div>
       )}
+
       {!report && status === "idle" && (
         <p className="docked-validation__empty">
-          Run a blind comparison against locked literature protocols.
+          Run the suite to compare locked literature checkpoints against Vide predictions.
         </p>
       )}
     </div>

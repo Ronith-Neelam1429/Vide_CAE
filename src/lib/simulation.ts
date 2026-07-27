@@ -568,6 +568,31 @@ export async function runValidation(
   });
 }
 
+export type ExperimentMetric = {
+  id: string;
+  label: string;
+  unit: string;
+  paperValue: number | null;
+  videValue: number | null;
+  absoluteError: number | null;
+  relativeErrorPct: number | null;
+  category: "checkpoint" | "derived" | "summary" | "parameter" | string;
+  description: string | null;
+  note: string | null;
+};
+
+export type DataPointCompare = {
+  label: string;
+  x: number;
+  xLabel: string;
+  xUnit: string;
+  paperValue: number;
+  videValue: number;
+  absoluteError: number;
+  relativeErrorPct: number | null;
+  unit: string;
+};
+
 export type WindowComparison = {
   label: string;
   startS: number;
@@ -575,6 +600,8 @@ export type WindowComparison = {
   sampleCount: number;
   metrics: ComparisonMetrics;
   comparison: ComparisonPoint[];
+  keyDataPoints: DataPointCompare[];
+  experimentMetrics: ExperimentMetric[];
   peakMeasuredC: number | null;
   peakPredictedC: number | null;
 };
@@ -583,14 +610,19 @@ export type ProofLabCaseResult = {
   caseId: string;
   title: string;
   citation: string;
+  modality: "heat" | string;
   measurementTarget: MeasurementTarget;
   measurementNote: string;
+  contactLabel: string;
   protocolInputs: Record<string, number>;
   protocolOptions: Record<string, string>;
-  blindPrediction: boolean;
+  paperReferenceInputs: Record<string, number>;
+  paperReferenceOptions: Record<string, string>;
+  usesUserContact: boolean;
   predictedSeries: ThermalSample[];
   measuredSeries: MeasuredSample[];
   windows: WindowComparison[];
+  experimentMetrics: ExperimentMetric[];
   extractedFromPaper: string[];
   unknowns: string[];
   caveats: string[];
@@ -600,6 +632,8 @@ export type CrossValidationPoint = {
   x: number;
   measured: number;
   predicted: number;
+  absoluteError: number;
+  relativeErrorPct: number | null;
 };
 
 export type CrossValidationCase = {
@@ -616,6 +650,8 @@ export type CrossValidationCase = {
   mae: number;
   signedBias: number;
   points: CrossValidationPoint[];
+  keyDataPoints: DataPointCompare[];
+  experimentMetrics: ExperimentMetric[];
   caveats: string[];
 };
 
@@ -628,14 +664,20 @@ export type ProofLabReport = {
 };
 
 export type ProofLabRequest = {
+  contact: {
+    id: string;
+    label: string;
+    stimulusType: string;
+    parameters: Record<string, number>;
+    options: Record<string, string>;
+  };
   settings?: SolverSettings;
 };
 
-export async function runProofLab(
-  request: ProofLabRequest = {},
-): Promise<ProofLabReport> {
+export async function runProofLab(request: ProofLabRequest): Promise<ProofLabReport> {
   return invoke<ProofLabReport>("run_proof_lab_validation", {
     request: {
+      contact: request.contact,
       settings: request.settings ?? {
         surfaceCellUm: 5,
         maxCellUm: 400,

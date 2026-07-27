@@ -18,9 +18,12 @@ import {
 import { runMechanics, type MechanicsResult } from "../lib/mechanics";
 import { literatureCaseById } from "../lib/literatureCases";
 import {
+  analyzeProofLabWithAssist,
   fetchAssistStatus,
   suggestProtocolWithAssist,
   type AssistConfigStatus,
+  type ProofLabAnalysis,
+  type ProofLabAnalysisPayload,
   type ProtocolSuggestion,
 } from "../lib/assist";
 import {
@@ -120,6 +123,9 @@ type ExperimentState = {
   proofLabResult: ProofLabReport | null;
   proofLabStatus: "idle" | "running" | "complete" | "error";
   proofLabError: string | null;
+  proofLabAnalysis: ProofLabAnalysis | null;
+  proofLabAnalysisStatus: "idle" | "running" | "complete" | "error";
+  proofLabAnalysisError: string | null;
   showProofLab: boolean;
   assistStatus: AssistConfigStatus | null;
   isImporting: boolean;
@@ -218,6 +224,7 @@ type ExperimentState = {
   openValidationDashboard: () => void;
   closeValidationDashboard: () => void;
   runProofLab: () => Promise<void>;
+  analyzeProofLab: () => Promise<void>;
   openProofLab: () => void;
   closeProofLab: () => void;
   runSimulation: () => Promise<void>;
@@ -284,6 +291,9 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
   proofLabResult: null,
   proofLabStatus: "idle",
   proofLabError: null,
+  proofLabAnalysis: null,
+  proofLabAnalysisStatus: "idle",
+  proofLabAnalysisError: null,
   showProofLab: false,
   assistStatus: null,
   isImporting: false,
@@ -739,16 +749,61 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
   closeProofLab: () => set({ showProofLab: false }),
 
   runProofLab: async () => {
+    const state = get();
+    const settings = SOLVER_PRESETS[state.solverPreset].settings;
+    const contactId = state.selectedContactId ?? state.contactPoints[0]?.id ?? null;
+    if (!contactId) {
+      set({
+        proofLabStatus: "error",
+        proofLabError: "Add a contact point before running Proof Lab.",
+        showProofLab: true,
+        bottomPanelTab: "proof-lab",
+        bottomPanelExpanded: true,
+      });
+      return;
+    }
+    const assignment = state.assignments.find((a) => a.contactPointId === contactId);
+    const contactPoint = state.contactPoints.find((c) => c.id === contactId);
+    if (!assignment || !contactPoint) {
+      set({
+        proofLabStatus: "error",
+        proofLabError: "Select a contact with stimulus settings in the sidebar.",
+        showProofLab: true,
+        bottomPanelTab: "proof-lab",
+        bottomPanelExpanded: true,
+      });
+      return;
+    }
+    if (assignment.stimulusType !== "heat") {
+      set({
+        proofLabStatus: "error",
+        proofLabError: "Proof Lab heat cases require a heat contact — set stimulus type to heat.",
+        showProofLab: true,
+        bottomPanelTab: "proof-lab",
+        bottomPanelExpanded: true,
+      });
+      return;
+    }
+
     set({
       proofLabStatus: "running",
       proofLabError: null,
+      proofLabAnalysis: null,
+      proofLabAnalysisStatus: "idle",
+      proofLabAnalysisError: null,
       showProofLab: true,
       bottomPanelTab: "proof-lab",
       bottomPanelExpanded: true,
     });
     try {
-      const settings = SOLVER_PRESETS[get().solverPreset].settings;
       const proofLabResult = await runProofLab({
+        contact: {
+          id: contactPoint.id,
+          label: contactPoint.label,
+          stimulusType: assignment.stimulusType,
+          parameters: assignment.parameters,
+          options: assignment.options,
+        },
         settings: {
           ...settings,
           timeStepMs: Math.max(settings.timeStepMs, 50),
@@ -762,6 +817,7 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
         proofLabError: null,
         showProofLab: true,
       });
+      void get().analyzeProofLab();
     } catch (error) {
       set({
         proofLabStatus: "error",
@@ -772,6 +828,69 @@ export const useExperimentStore = create<ExperimentState>((set, get) => ({
               ? error.message
               : "Proof-lab comparison could not be completed.",
         showProofLab: true,
+      });
+    }
+  },
+
+  analyzeProofLab: async () => {
+    const report = get().proofLabResult;
+    if (!report) return;
+    set({
+      proofLabAnalysisStatus: "running",
+      proofLabAnalysisError: null,
+    });
+    try {
+      const payload: ProofLabAnalysisPayload = {
+        modelVersion: report.modelVersion,
+        disclosure: report.disclosure,
+        cases: report.cases.map((entry) => ({
+          caseId: entry.caseId,
+          title: entry.title,
+          citation: entry.citation,
+          modality: entry.modality,
+          measurementNote: entry.measurementNote,
+          extractedFromPaper: entry.extractedFromPaper,
+          unknowns: entry.unknowns,
+          experimentMetrics: entry.experimentMetrics,
+          windows: entry.windows.map((window) => ({
+            label: window.label,
+            sampleCount: window.sampleCount,
+            rmseC: window.metrics.rmseC,
+            maeC: window.metrics.maeC,
+            signedBiasC: window.metrics.signedBiasC,
+            keyDataPoints: window.keyDataPoints.slice(0, 16),
+            experimentMetrics: window.experimentMetrics,
+          })),
+        })),
+        crossValidationCases: report.crossValidationCases.map((entry) => ({
+          caseId: entry.caseId,
+          title: entry.title,
+          citation: entry.citation,
+          modality: entry.modality,
+          status: entry.status,
+          rmse: entry.rmse,
+          mae: entry.mae,
+          signedBias: entry.signedBias,
+          keyDataPoints: entry.keyDataPoints,
+          experimentMetrics: entry.experimentMetrics,
+          caveats: entry.caveats,
+        })),
+      };
+      const proofLabAnalysis = await analyzeProofLabWithAssist(payload, true);
+      set({
+        proofLabAnalysis,
+        proofLabAnalysisStatus: "complete",
+        proofLabAnalysisError: null,
+      });
+    } catch (error) {
+      set({
+        proofLabAnalysisStatus: "error",
+        proofLabAnalysisError:
+          typeof error === "string"
+            ? error
+            : error instanceof Error
+              ? error.message
+              : "Proof Lab AI analysis failed.",
       });
     }
   },
