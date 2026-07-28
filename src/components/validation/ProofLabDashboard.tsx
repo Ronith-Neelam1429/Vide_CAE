@@ -249,8 +249,23 @@ function WindowChart({ entry, window }: { entry: ProofLabCaseResult; window: Win
       }));
   }, [entry, window]);
 
+  const target = measurementTargetLabel(entry.measurementTarget);
+
   return (
-    <div className="validation-chart proof-lab__chart" aria-label={`${window.label} overlay`}>
+    <section
+      className="validation-chart proof-lab__chart"
+      aria-label={`${window.label} temperature comparison`}
+    >
+      <div className="proof-lab__chart-header">
+        <div className="result-tier-label">Comparison graph</div>
+        <h4 className="proof-lab__chart-title">
+          {target} over time
+        </h4>
+        <p className="proof-lab__chart-subtitle">
+          {window.label} · published study vs your simulation
+          {window.sampleCount > 0 ? ` · ${window.sampleCount} aligned checkpoints` : ""}
+        </p>
+      </div>
       <ResponsiveContainer width="100%" height={260}>
         <LineChart data={data} margin={{ top: 12, right: 16, bottom: 4, left: 0 }}>
           <CartesianGrid stroke="rgba(255,255,255,0.06)" strokeDasharray="3 3" />
@@ -293,7 +308,153 @@ function WindowChart({ entry, window }: { entry: ProofLabCaseResult; window: Win
           />
         </LineChart>
       </ResponsiveContainer>
+    </section>
+  );
+}
+
+function comparisonPointsAsRows(window: WindowComparison): DataPointCompare[] {
+  if (window.keyDataPoints.length > 0) return window.keyDataPoints;
+  return window.comparison.map((point) => ({
+    label: `t = ${point.timeS.toFixed(1)} s`,
+    x: point.timeS,
+    xLabel: "Time",
+    xUnit: "s",
+    paperValue: point.measuredC,
+    videValue: point.predictedC,
+    absoluteError: point.residualC,
+    relativeErrorPct:
+      Math.abs(point.measuredC) > 1e-9
+        ? (point.residualC / point.measuredC) * 100
+        : null,
+    unit: "°C",
+  }));
+}
+
+function SummaryAveragesTable({ window }: { window: WindowComparison }) {
+  const rows: Array<{
+    label: string;
+    paper: string;
+    sim: string;
+    gap: string;
+    note?: string;
+  }> = [
+    {
+      label: "Typical gap (RMSE)",
+      paper: "—",
+      sim: "—",
+      gap: formatProofLabNumber(window.metrics.rmseC, 2, " °C"),
+      note: "Root-mean-square error across aligned checkpoints",
+    },
+    {
+      label: "Average mismatch (MAE)",
+      paper: "—",
+      sim: "—",
+      gap: formatProofLabNumber(window.metrics.maeC, 2, " °C"),
+      note: "Mean absolute error",
+    },
+    {
+      label: "Bias (you − study)",
+      paper: "—",
+      sim: "—",
+      gap: formatProofLabSigned(window.metrics.signedBiasC, 2, " °C"),
+      note: "Positive means your simulation ran hotter on average",
+    },
+    {
+      label: "Peak temperature",
+      paper: formatProofLabTemp(window.peakMeasuredC),
+      sim: formatProofLabTemp(window.peakPredictedC),
+      gap: formatProofLabSigned(window.metrics.peakTemperatureErrorC, 2, " °C"),
+    },
+    {
+      label: "Time-to-peak error",
+      paper: "—",
+      sim: "—",
+      gap: formatProofLabSigned(window.metrics.timeToPeakErrorS, 1, " s"),
+      note: "Positive means your peak occurs later than the study",
+    },
+    {
+      label: "Aligned checkpoints",
+      paper: String(window.sampleCount),
+      sim: String(window.sampleCount),
+      gap: "—",
+      note: window.metrics.timeAlignment || undefined,
+    },
+  ];
+
+  return (
+    <div className="proof-lab__table-wrap">
+      <table className="proof-lab__metrics">
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th title={PROOF_LAB_COLUMN_HELP.published}>Published study</th>
+            <th title={PROOF_LAB_COLUMN_HELP.yours}>Your simulation</th>
+            <th title={PROOF_LAB_COLUMN_HELP.delta}>Gap / score</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.label}>
+              <td>
+                <div className="proof-lab__point-label">
+                  <strong>{row.label}</strong>
+                  {row.note && <small>{row.note}</small>}
+                </div>
+              </td>
+              <td>{row.paper}</td>
+              <td>{row.sim}</td>
+              <td>{row.gap}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
+  );
+}
+
+function PaperVsSimNumbers({
+  window,
+  displayMetrics,
+  protocolMatched,
+}: {
+  window: WindowComparison;
+  displayMetrics: ExperimentMetric[];
+  protocolMatched: boolean;
+}) {
+  const checkpoints = useMemo(() => comparisonPointsAsRows(window), [window]);
+
+  return (
+    <section className="proof-lab__numbers" aria-label="Published study vs simulation numbers">
+      <div className="proof-lab__numbers-header">
+        <div className="result-tier-label">Numbers comparison</div>
+        <h4>Published study vs your simulation</h4>
+        <p>
+          Averages and checkpoints for {window.label}
+          {!protocolMatched
+            ? " — protocol still differs, so gaps may reflect settings, not model error"
+            : ""}
+          .
+        </p>
+      </div>
+
+      <h5 className="proof-lab__detail-heading">Averages & summary scores</h5>
+      <SummaryAveragesTable window={window} />
+
+      {displayMetrics.length > 0 && (
+        <>
+          <h5 className="proof-lab__detail-heading">Metric by metric</h5>
+          <MetricCards metrics={displayMetrics} protocolMatched={protocolMatched} />
+        </>
+      )}
+
+      <h5 className="proof-lab__detail-heading">
+        Data points ({checkpoints.length})
+      </h5>
+      <DataPointTable
+        points={checkpoints}
+        emptyLabel="No measured checkpoints in this window."
+      />
+    </section>
   );
 }
 
@@ -556,17 +717,7 @@ function ProtocolVerdict({
   );
 }
 
-function MetricDetailSection({
-  entry,
-  window,
-  displayMetrics,
-  protocolMatched,
-}: {
-  entry: ProofLabCaseResult;
-  window: WindowComparison;
-  displayMetrics: ExperimentMetric[];
-  protocolMatched: boolean;
-}) {
+function ProtocolDetailSection({ entry }: { entry: ProofLabCaseResult }) {
   const [open, setOpen] = useState(false);
   return (
     <section className="physics-detail proof-lab__detail">
@@ -577,8 +728,8 @@ function MetricDetailSection({
         onClick={() => setOpen(!open)}
       >
         <span className={`result-section__chevron${open ? " is-open" : ""}`}>›</span>
-        Metric detail
-        <span className="physics-detail__hint">protocol · cards · checkpoints</span>
+        Protocol settings
+        <span className="physics-detail__hint">published study vs your sidebar inputs</span>
       </button>
       {open && (
         <div className="physics-detail__body">
@@ -586,12 +737,6 @@ function MetricDetailSection({
             title="Protocol · published study vs your sidebar"
             paper={entry.paperReferenceInputs}
             yours={entry.protocolInputs}
-          />
-          <MetricCards metrics={displayMetrics} protocolMatched={protocolMatched} />
-          <h4 className="proof-lab__detail-heading">Checkpoint-by-checkpoint</h4>
-          <DataPointTable
-            points={window.keyDataPoints}
-            emptyLabel="No measured checkpoints in this window."
           />
         </div>
       )}
@@ -809,12 +954,13 @@ function CasePanel({
         <WindowChart entry={entry} window={window} />
       </section>
 
-      <MetricDetailSection
-        entry={entry}
+      <PaperVsSimNumbers
         window={window}
         displayMetrics={displayMetrics}
         protocolMatched={protocolMatch.matched}
       />
+
+      <ProtocolDetailSection entry={entry} />
 
       <details className="proof-lab__details">
         <summary>Study notes & full parameter lists</summary>
@@ -868,7 +1014,6 @@ function CrossValidationPanel({
   entry: CrossValidationCase;
   brief?: ProofLabAnalysis["caseBriefs"][number];
 }) {
-  const [detailOpen, setDetailOpen] = useState(false);
   const tone = accuracyTone(entry.rmse);
 
   return (
@@ -918,7 +1063,16 @@ function CrossValidationPanel({
       </section>
 
       <section className="result-story__charts">
-        <div className="validation-chart proof-lab__chart">
+        <section className="validation-chart proof-lab__chart">
+          <div className="proof-lab__chart-header">
+            <div className="result-tier-label">Comparison graph</div>
+            <h4 className="proof-lab__chart-title">
+              {entry.metricLabel} vs {entry.xLabel}
+            </h4>
+            <p className="proof-lab__chart-subtitle">
+              Transfer check · published study vs Vide model
+            </p>
+          </div>
           <ResponsiveContainer width="100%" height={260}>
             <LineChart data={entry.points} margin={{ top: 12, right: 16, bottom: 4, left: 0 }}>
               <CartesianGrid stroke="rgba(255,255,255,0.06)" strokeDasharray="3 3" />
@@ -960,30 +1114,56 @@ function CrossValidationPanel({
               />
             </LineChart>
           </ResponsiveContainer>
-        </div>
+        </section>
       </section>
 
-      <section className="physics-detail proof-lab__detail">
-        <button
-          type="button"
-          className="physics-detail__toggle"
-          aria-expanded={detailOpen}
-          onClick={() => setDetailOpen(!detailOpen)}
-        >
-          <span className={`result-section__chevron${detailOpen ? " is-open" : ""}`}>›</span>
-          Metric detail
-          <span className="physics-detail__hint">cards · checkpoints</span>
-        </button>
-        {detailOpen && (
-          <div className="physics-detail__body">
+      <section className="proof-lab__numbers" aria-label="Transfer check numbers">
+        <div className="proof-lab__numbers-header">
+          <div className="result-tier-label">Numbers comparison</div>
+          <h4>Published study vs Vide model</h4>
+          <p>Aggregate scores and checkpoint values for this transfer check.</p>
+        </div>
+        <div className="proof-lab__table-wrap">
+          <table className="proof-lab__metrics">
+            <thead>
+              <tr>
+                <th>Metric</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>RMSE</td>
+                <td>
+                  {formatProofLabNumber(entry.rmse, 2)} {entry.metricUnit}
+                </td>
+              </tr>
+              <tr>
+                <td>MAE</td>
+                <td>
+                  {formatProofLabNumber(entry.mae, 2)} {entry.metricUnit}
+                </td>
+              </tr>
+              <tr>
+                <td>Bias (Vide − study)</td>
+                <td>{formatProofLabSigned(entry.signedBias, 2, ` ${entry.metricUnit}`)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        {entry.experimentMetrics.length > 0 && (
+          <>
+            <h5 className="proof-lab__detail-heading">Metric by metric</h5>
             <MetricCards metrics={entry.experimentMetrics} protocolMatched />
-            <h4 className="proof-lab__detail-heading">Checkpoint-by-checkpoint</h4>
-            <DataPointTable
-              points={entry.keyDataPoints}
-              emptyLabel="No transfer points available."
-            />
-          </div>
+          </>
         )}
+        <h5 className="proof-lab__detail-heading">
+          Data points ({entry.keyDataPoints.length})
+        </h5>
+        <DataPointTable
+          points={entry.keyDataPoints}
+          emptyLabel="No transfer points available."
+        />
       </section>
 
       <ul className="result-warnings">

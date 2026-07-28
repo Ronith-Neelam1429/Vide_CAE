@@ -4696,10 +4696,53 @@
 
 .proof-lab__chart {
   min-height: 260px;
-  padding: 8px;
-  border-radius: 10px;
-  border: 1px solid #343c45;
-  background: rgba(0, 0, 0, 0.18);
+  padding: 8px 10px 10px;
+  border-radius: var(--vide-radius-md);
+  border: 1px solid var(--vide-border);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.proof-lab__chart-header {
+  margin-bottom: 6px;
+  padding: 2px 4px 4px;
+}
+
+.proof-lab__chart-title {
+  margin: 3px 0 2px;
+  color: var(--vide-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.proof-lab__chart-subtitle {
+  margin: 0;
+  color: var(--vide-text-dim);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.proof-lab__numbers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--vide-border);
+  border-radius: var(--vide-radius-md);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.proof-lab__numbers-header h4 {
+  margin: 3px 0 2px;
+  color: var(--vide-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.proof-lab__numbers-header p {
+  margin: 0;
+  color: var(--vide-text-muted);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .proof-lab__split-side h4,
